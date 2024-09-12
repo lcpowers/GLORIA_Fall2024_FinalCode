@@ -1,0 +1,326 @@
+---
+title: "Climate data interpolation"
+author: "Claire Powers"
+date: "1/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Clear env
+```{r clearenv}
+rm(list=ls())
+```
+
+Packages
+```{r packages}
+library(tidyverse)
+library(MuMIn)
+library(reshape2)
+```
+
+Read in t mean model data
+```{r data}
+
+dailyT <- read_csv("./InputData/byClaire/allparks_dailyT_2022-11-01.csv")
+
+GSD <- read_csv("./InputData/byClaire/GSD_dailyT_moddata.csv")
+RMN <- read_csv("./InputData/byClaire/RMN_dailyT_moddata.csv")
+YNP <- read_csv("./InputData/byClaire/YNP_dailyT_moddata.csv")
+GNP <- read_csv("./InputData/byClaire/GNP_dailyT_moddata.csv")
+
+```
+
+
+### GRSD model ###
+# All data missing from 2013-09-18 to 2014-08-29
+
+# Fill in climate for GRSD EXCEPT the entire missing year
+```{r interpGRSD}
+
+# Get names of all summits in GRSD
+summits <- unique(dailyT$summit[dailyT$park=="GSD"]) %>% as.character()
+aspects <- c("N","S","E","W")
+
+# This dataframe will be used in the predict function to predict current dependent variable
+GSD_nomissyr_df <- filter(GSD,!date%in%seq(as.Date('2013-09-18'),as.Date('2014-08-29'),by='days'))
+
+# This will store observed and predicted data in separate columns for reference
+predict_df <- GSD_nomissyr_df %>% select(date,starts_with('tmean'))
+
+# This will store observed data and fill in NAs with predicted data in the same column
+filledNAs_df <- predict_df
+
+for(i in summits){
+  for(j in aspects){
+    
+    # Current summit*aspect
+    sum_asp <- paste0(i,"_",j)
+    
+    # Use to remove other summits prism columns
+    othersummits <- setdiff(summits,i)
+    
+    lm_df <- GSD %>% 
+      filter(!date%in%seq(as.Date('2013-09-18'),as.Date('2014-08-29'),by='days')) %>% # Only applicable for GRSD
+      select(-date) %>% # get rid of date columns
+      select(-c(paste0("PR.tmean.",othersummits))) %>% # remove other summits' prism data
+      select(-contains("PR.tmin")) %>% 
+      select(paste0('tmean.',sum_asp),which(colSums(is.na(.))<10)) %>% # Keep mean t column for current sum*asp and any other columns with fewer than 10 NAs
+      na.omit()
+    
+    # linear model predicting current sum*asp mean temp
+    tmp_lm <- lm(formula = paste0("tmean.",i,"_", j,' ~ .'),data = lm_df, na.action = "na.fail")
+    tmp_dredge <- dredge(global.model = tmp_lm, extra = "R^2",fixed="doy")
+    
+    # Select the best model from dredge
+    best_model <- get.models(tmp_dredge,subset=1)[[1]]
+    
+    # Predict t mean for current sum*asp using the best model
+    predict_vec <- predict(object = best_model,GSD_nomissyr_df)
+    
+    # Add predicted data as new column in predict_df and rename
+    predict_df <- cbind(predict_df,predict_vec)
+    colnames(predict_df)[ncol(predict_df)] <- paste0("pred.tmean.",sum_asp)
+    
+    # Find column that contains observed t mean data for current sum*asp
+    colnum <- which(colnames(filledNAs_df)==paste0('tmean.',sum_asp))
+    
+    # Fill in NA values in the filledNAs_df
+    for(rownum in 1:nrow(filledNAs_df)){
+      
+       if(is.na(filledNAs_df[rownum,colnum])) {filledNAs_df[rownum,colnum]=predict_vec[rownum]}
+      
+    }
+
+    print(c(sum_asp,tmp_dredge$`R^2`[1],names(best_model$coefficients)))
+    rm(lm_df,tmp_lm,tmp_dredge,best_model,predict_vec,sum_asp,colnum)
+    
+  } # End aspect loop
+} # End summit loop
+
+assign("GSD_predict_df1",predict_df)
+assign("GSD_filledNAs_df",filledNAs_df)
+sapply(GSD_filledNAs_df, function(x) sum(is.na(x)))
+
+rm(filledNAs_df,predict_df)
+```
+
+# Plot predicted data vs observed data for GRSD models that predict all but missing year of data
+```{r plotpredictions}
+
+for(i in summits){
+  for(j in aspects){
+    
+    obs <- paste0('tmean.',i,"_",j)
+    pred <- paste0('pred.tmean.',i,"_",j)
+    print(ggplot(GSD_predict_df1,aes(x=eval(as.name(obs)),y=eval(as.name(pred))))+
+      geom_point()+
+      geom_abline(slope=1)+
+      labs(title=paste(i,j),x=obs,y=pred)+
+      theme_bw())
+    rm(obs,pred)
+  
+    }
+}
+```
+
+# Now fill in the missing year from Great Sand Dunes NP. Since there is not soil T data for this year, these models will rely on PRISM data as independent variables
+```{r GRSDmissingyear}
+
+# This will store observed and predicted data in separate columns for reference
+predict_df <- GSD %>% select(date,starts_with('tmean'))
+
+GSD_missyr_df <- filter(GSD,date%in%seq(as.Date('2013-09-18'),as.Date('2014-08-29'),by='days'))
+
+GSD_missyr_filledNAs_df <- GSD_missyr_df %>% select(date,starts_with('tmean'))
+
+for(i in summits){
+  for(j in aspects){
+    
+    # Set sum_asp
+    sum_asp <- paste0(i,"_",j)
+    
+    # Create variable of prism column name for sum*asp to be used in model below
+    PRcol <- paste0("PR.tmean.",i)
+    
+    # Create model data.frame
+    lm_df <- GSD %>%
+      select(paste0("tmean.",sum_asp),starts_with("PR."),doy,doysq) %>% 
+      na.omit()
+    
+    # Create global model
+    tmp_lm <- lm(paste0("tmean.",i,"_",j, " ~ . + I(",PRcol,"^2) + I(",PRcol,"^3)"), data = lm_df,  na.action = "na.fail")
+    
+    # Dredge global model
+    tmp_dredge <- dredge(global.model = tmp_lm, extra = "R^2",fixed="doy")
+    
+    # Pull best model from dredge output
+    best_model <- get.models(tmp_dredge,subset=1)[[1]]
+    
+    # Print stats from best model
+    print(c(sum_asp,summary(best_model)$r.squared))
+  
+    # use the best model to predict temp values for the missing year
+    all_predict_vec <- predict(object = best_model,GSD)
+    
+    # Add predicted data as new column in predict_df and rename
+    predict_df <- cbind(predict_df,all_predict_vec)
+    colnames(predict_df)[ncol(predict_df)] <- paste0("pred.tmean.",sum_asp)
+    
+    # Now just predict values for the missing year. Could also subset the above values in predict df 
+    missyr_predict_vec <- predict(object=best_model,GSD_missyr_df)
+    
+    # Find columm for current sum*asp
+    colnum <- which(colnames(GSD_missyr_filledNAs_df)==paste0('tmean.',sum_asp))
+    
+    # Fill in NA values in the filledNAs_df
+    for(rownum in 1:nrow(GSD_missyr_filledNAs_df)){
+       if(is.na(GSD_missyr_filledNAs_df[rownum,colnum])) {GSD_missyr_filledNAs_df[rownum,colnum]=missyr_predict_vec[rownum]}
+      } # End fill NA loop
+    
+     rm(lm_df,tmp_lm,tmp_dredge,best_model,all_predict_vec,missyr_predict_vec,sum_asp,colnum)
+    
+  } # end aspect loop
+} # end summit loop
+
+# Bind predicted missing year of data to rest of predicted data set
+GSD_final_df <- rbind(GSD_filledNAs_df,GSD_missyr_filledNAs_df) %>% arrange(date)
+sapply(GSD_final_df, function(x) sum(is.na(x)))
+
+assign("GSD_predict_df2",predict_df)
+rm(predict_df)
+```
+
+# Plot output from models for missing mean T data for GRSD
+```{r plotmissingyearmodels}
+
+for(i in summits){
+  for(j in aspects){
+    
+    obs <- paste0('tmean.',i,"_",j)
+    pred <- paste0('pred.tmean.',i,"_",j)
+    print(ggplot(GSD_predict_df2,aes(x=eval(as.name(obs)),y=eval(as.name(pred))))+
+      geom_point()+
+      geom_abline(slope=1)+
+      labs(title=paste(i,j),x=obs,y=pred)+
+      theme_bw())
+    rm(obs,pred)
+  }
+}
+
+```
+
+#### Model for other parks (not GRSD)
+```{r otherparkstmeanmods}
+
+# Get names of all summits in other parks
+parks <- c("RMN","YNP","GNP")
+
+for(park in parks){
+  summits <- unique(dailyT$summit[dailyT$park==park]) %>% as.character()
+  # Get full initial data.frame
+  predict_df <- eval(as.name(park)) %>% select(date,starts_with('tmean'))
+  filledNAs_df <- predict_df
+  
+  maxNA <- ifelse(park=="RMN",9,10)
+
+  for(i in summits){
+    for(j in aspects){
+      
+      sum_asp <- paste0(i,"_",j)
+      dep_col <- paste0("tmean.",sum_asp)
+      PRcol <- paste0("PR.tmean.",i)
+      
+      # Use to remove other summits prism columns
+      othersummits <- setdiff(summits,i)
+      
+      lm_df <- eval(as.name(park)) %>% 
+        select(-c(date)) %>% # get rid of date columns
+        select(-c(paste0("PR.tmean.",othersummits))) %>% # remove other summits' prism data
+        select(-contains("PR.tmin")) %>% # remove min Temp prism data
+        select(paste0('tmean.',sum_asp),which(colSums(is.na(.))<maxNA)) %>% 
+        na.omit()
+
+      # GNP has a slightly different model. Use if else to tell loop which model to use based on park
+      if(park=="GNP") {
+        tmp_lm <- lm(formula = paste0(dep_col,' ~ . + I(',PRcol,'^2) + I(',PRcol,'^3)'),data = lm_df, na.action = "na.fail")
+      } else {
+        tmp_lm <- lm(formula = paste0("tmean.",i,"_", j,' ~ . '),data = lm_df, na.action = "na.fail")
+      }
+
+      # dredge global model
+      tmp_dredge <- dredge(global.model = tmp_lm, extra = "R^2",fixed=c(PRcol,"doy"))
+
+      # Get best model from dredge output
+      best_model <- get.models(tmp_dredge,subset=1)[[1]]
+
+      # Generate vector of predicted values using the main/original dataframe for park
+      predict_vec <- predict(object = best_model,eval(as.name(park)))
+
+      # Bind predicted values to predict DF
+      predict_df <- cbind(predict_df,predict_vec)
+      colnames(predict_df)[ncol(predict_df)] <- paste0("pred_",sum_asp)
+
+      # Check that output_df has same number of rows (same days) as predict_vec
+      # nrow(output_df)==length(predict_vec)
+      colnum <- which(colnames(filledNAs_df)==paste0('tmean.',sum_asp))
+
+      # Fill in NA values in the output_df
+      for(rownum in 1:nrow(filledNAs_df)){
+         if(is.na(filledNAs_df[rownum,colnum])) {filledNAs_df[rownum,colnum]=predict_vec[rownum]}
+      }
+
+      print(c(sum_asp,tmp_dredge$`R^2`[1],names(best_model$coefficients)))
+      rm(lm_df,tmp_lm,tmp_dredge,best_model,predict_vec,sum_asp,PRcol,colnum,dep_col)
+
+    } # End aspect loop
+  } # End summit loop
+  assign(paste0(park,"_filledNAs_df"), filledNAs_df)
+  assign(paste0(park,"_predict_df"), predict_df)
+  rm(filledNAs_df,predict_df,maxNA)
+} # end parks loop
+
+```
+
+# Convert model output data.frames from long to wide and write csvs
+```{r finalmeanTdfs}
+
+GSD_final <- GSD_final_df %>% 
+  melt(id.vars="date") %>% 
+  separate(variable,c("summit","aspect"),sep = "_") %>%
+  separate(summit,c("x","summit")) %>% 
+  select(-x) %>% 
+  mutate(park="GSD")
+colnames(GSD_final)[4] <- "tmean"
+write_csv(GSD_final,"./InputData/byClaire/InterpDailyT/GSD_meandailyT.csv")
+
+RMN_final <- RMN_filledNAs_df %>% 
+  melt(id.vars="date") %>% 
+  separate(variable,c("summit","aspect"),sep = "_") %>%
+  separate(summit,c("x","summit")) %>% 
+  select(-x) %>% 
+  mutate(park="RMN")
+colnames(RMN_final)[4] <- "tmean"
+write_csv(RMN_final,"./InputData/byClaire/InterpDailyT/RMN_meandailyT.csv")
+
+YNP_final <- YNP_filledNAs_df %>% 
+  melt(id.vars="date") %>% 
+  separate(variable,c("summit","aspect"),sep = "_") %>%
+  separate(summit,c("x","summit")) %>% 
+  select(-x) %>% 
+  mutate(park="YNP")
+colnames(YNP_final)[4] <- "tmean"
+write_csv(YNP_final,"./InputData/byClaire/InterpDailyT/YNP_meandailyT.csv")
+
+GNP_final <- GNP_filledNAs_df %>% 
+  melt(id.vars="date") %>% 
+  separate(variable,c("summit","aspect"),sep = "_") %>%
+  separate(summit,c("x","summit")) %>% 
+  select(-x) %>% 
+  mutate(park="GNP")
+colnames(GNP_final)[4] <- "tmean"
+write_csv(GNP_final,"./InputData/byClaire/InterpDailyT/GNP_meandailyT.csv")
+```
+

@@ -1,0 +1,426 @@
+---
+title: "Species of Interest with May 2023 best models"
+author: "Claire Powers"
+date: '2023-05-16'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Packages and data
+```{r packages_data}
+rm(list=ls())
+
+##### Packages #####
+library(tidyverse)
+library(lme4)
+library(MuMIn)
+library(grid)
+
+##### 1x1 veg data #####
+dats.orig = read_csv('./AnalysisData/analysisdata_final.csv')
+dats.unscaled=dats.orig %>% 
+  drop_na(startcover,climPC1,climPC2,latmax1090,latmin1090,latmean1090,latmedian1090) %>% 
+  filter(abs(changecover)<=20) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
+  filter(startcover+endcover!=0) %>%  # remove cases where a species did not have start or end cover
+  mutate(parksummit = paste(park,summit,sep="."),
+         PSaspect = paste(park,summit,aspect,sep="."),
+         startcovcats = cut(startcover,breaks=c(-0.1,seq(0.1,40,5)))) %>% 
+  mutate(park = factor(park,levels=c("GNP","YNP","RMN","GSD","PEC")),
+         tr.num = str_sub(transition,4,4)) 
+
+# Create another dataframe where numeric predictor variables are scaled
+dats.scaled = dats.unscaled# Get names columns to standardize
+scale_cols = dats.unscaled %>% select(startcover,climPC1,climPC2,sitelat,contains(c("1090",".tmean",".aet",".pet",".ppt",".snowdays",".gdd"))) %>% names()
+dats.scaled[scale_cols]=lapply(dats.scaled[scale_cols], function(x) scale(x))
+# not_all_na <- function(x) any(!is.na(x))
+rm(scale_cols)
+
+##### soi csv #####
+soi = read_csv("./InputData/speciesTraits/important_species_final.csv")[1:5]%>% 
+  separate(sciname,c("genus","species"),remove = F)
+soi_names = select(soi,sciname) %>% unique() %>% arrange(sciname)
+
+##### Count number of rows of data for each species/species group of interest
+soi_counts = NULL
+for(i in 1:nrow(soi)){
+  
+  if(is.na(soi$species[i])){ 
+    
+    tmp = filter(dats.unscaled,genus==soi$genus[i]) %>% 
+      group_by(genus) %>% tally()
+    
+  } else {
+    tmp = filter(dats.unscaled,sciname==soi$sciname[i]) %>% 
+      group_by(sciname) %>% tally()
+    }
+  
+  names(tmp) = c("species","count")
+  
+  soi_counts=rbind(soi_counts,tmp) %>% unique()
+  rm(tmp)
+  
+}
+
+mod_SOIs = na.omit(soi_counts$species[soi_counts$count>=20]) 
+# 18 spp
+mod_SOIs = c(mod_SOIs, "gram")
+
+# Simplified model call from dredge output taken from global best model
+climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + sitelat) + habit*(min.gdd + sitelat) + perenneating*max.tmean + (1 | transition) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd | sciname)"
+
+# Refit with REML
+climVar.mod = lmer(formula = climVar.mod.str, na.action =  "na.fail", data = dats.unscaled, REML = T)
+```
+
+# Best climate variable model
+best.climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + sitelat) + habit*(min.gdd + sitelat) + perenneating*max.tmean + (1 | transition) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd | sciname)
+
+## Models for SOIs with best explicit climate variable model
+```{r SOImods_explClimVarmod}
+
+climVar.modterms.df = data.frame(species=mod_SOIs)
+terms = summary(climVar.mod)$coefficients %>% rownames()
+climVar.modterms.df[c(terms)] <- NA
+rownames(climVar.modterms.df)=climVar.modterms.df$species
+climVar.param.ests = climVar.modterms.df
+
+# mod.strings.df = NULL
+# mod_SOIs = "Artemisia scopulorum"
+for(i in 1:length(mod_SOIs)){
+  
+  # get name of species or genus
+  spp.i = mod_SOIs[i]
+  
+  x = unlist(str_split(spp.i,pattern = " ")) %>% length()
+  if(x==1){type="genus"}
+  if(x==2){type="species"}
+  if(spp.i=="gram"){type="gram"}
+  
+  ##### Genus model string and data if statement ######
+  #### Specifying a model string based on genus (potentially multiple species)
+  if(type=="genus"){ # if fitting mod for a genus
+    
+    # Filter data for genus O.I.
+    tmp.dats.s = filter(dats.scaled,genus == mod_SOIs[i])
+    tmp.dats.us = filter(dats.unscaled,genus == mod_SOIs[i])
+    
+    # Specify model string
+    # if there is variation in the perenneating, habit and species column then keep the model that include perenneating
+    
+    per.var = length(unique(tmp.dats.us$perenneating))
+    hab.var = length(unique(tmp.dats.us$habit))
+    spp.var = length(unique(tmp.dats.us$sciname))
+    if(per.var!=hab.var) print(spp.i)
+    
+    if(per.var==1&hab.var==1&spp.var>1){ # if no variation in habit or perennation but multiple species
+
+      climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + sitelat) + max.tmean + (1 | transition) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd | sciname)"
+
+    } else if(per.var==1&hab.var==1&spp.var==1){ # Not variation in spp, per, or hab
+
+      climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + sitelat) + max.tmean + (1 | transition)"
+
+    } else { # If variation in all
+        
+      climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + sitelat) + habit*(min.gdd + sitelat) + perenneating*max.tmean + (1 | transition) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd | sciname)"
+      
+      }
+  } 
+  ##### End genus model string and data if statement ######
+  
+  ##### gram model string and data if statement ######
+  if(type=="gram"){ # if fitting mod for a genus
+    
+    # Filter data for genus O.I.
+    tmp.dats.s = filter(dats.scaled,habit=="gram")
+    tmp.dats.us = filter(dats.unscaled,habit=="gram")
+    
+    climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + sitelat) + max.tmean + (1 | transition) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd | sciname)"
+    spp.var = length(unique(tmp.dats.us$sciname))
+  } 
+  ##### End gram model string and data if statement ######
+
+  ##### Start type == "species" if statement
+  if(type=="species") {
+
+    tmp.dats.s = filter(dats.scaled,sciname == mod_SOIs[i])
+    tmp.dats.us = filter(dats.unscaled,sciname == mod_SOIs[i])
+
+    spp.var = 1
+    # mod string for one spp - No range values (latmean1090), no perennating since no variation when one species
+    climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + sitelat)  + max.tmean + (1 | transition)"
+
+    }
+
+  mod.i = lmer(climVar.mod.str, data = tmp.dats.s, REML = FALSE, na.action = "na.fail")
+  # summary(mod.i)
+
+  if(spp.var>1){ # fix random slope terms if multiple species considered in model
+    
+    dredge.mod.i = dredge(mod.i,
+                    beta = c("none"),
+                    fixed = c('startcover',"min.gdd","max.tmean","min.wy.ppt","min.gs.ppt"),
+                    trace=2,
+                    subset = dc(latmean1090,I(latmean1090^2)))
+    
+  } else { # Otherwise no need to fix them
+    
+    dredge.mod.i = dredge(mod.i,
+                        beta = c("none"),
+                        fixed = c('startcover'),
+                        trace=F,
+                        subset = dc(latmean1090,I(latmean1090^2)))
+    }
+  
+  best.mod = get.models(dredge.mod.i,subset=1)[[1]]
+  
+  ## Refit best model with REML and unscaled data ##
+  best.mod.us = lmer(formula(best.mod), data = tmp.dats.us, REML = T, na.action = "na.fail")
+  
+  terms.selected = rownames(summary(best.mod.us)$coefficients)
+  climVar.modterms.df[spp.i,terms.selected]="yes"
+    
+  param.estimates = summary(best.mod.us)$coefficients
+  climVar.param.ests[spp.i,terms.selected] = round(param.estimates[,1],4)
+  
+  ### Get model terms
+  terms = as.data.frame(summary(best.mod.us)$coefficients) %>% 
+    rownames_to_column(var="term") %>% 
+    filter(!str_detect(term,":")&term!="(Intercept)"&term!="startcover"&term!="I(latmean1090^2)")
+  terms = terms$term
+  terms[str_detect(terms,"habit")]="habit"
+  
+  l.var = 20
+  ########### Make plots for main effect term in the best model using unscaled data #############
+  ##### Build predict DF #####
+  if(length(terms)>0){
+    
+    for(t in 1:length(terms)){
+    
+      main_term = terms[t]
+      main_term_title = ifelse(main_term=="sitelat","Site latitude",
+                               ifelse(main_term=="latmean1090","Mean spp. latitude",
+                                      ifelse(main_term=="max.tmean","GS temp.",
+                                             ifelse(main_term=="min.gdd","GDD",
+                                                    ifelse(main_term=="min.gs.ppt","GS precip.",
+                                                           ifelse(main_term=="min.wy.ppt"," WY precip.","Habit"))))))
+      
+      if(main_term=="habit"){
+        
+        main_term_seq = unique(tmp.dats.us$habit)
+        
+      } else {
+        
+         main_term_seq = seq(min(tmp.dats.us[main_term]), max(tmp.dats.us[main_term]),length.out = l.var )
+      
+         }
+     
+      tmp.pred.df = expand_grid(startcover = median(tmp.dats.us$startcover),
+                                main_term = main_term_seq)
+      names(tmp.pred.df)[2]=eval(main_term)
+      
+      other_terms = setdiff(terms,main_term)
+      
+      if(length(other_terms)>0){
+        
+        for(j in other_terms){
+          if(j == "habit"){
+            
+              a = cbind(tmp.pred.df,habit="shrub")
+              b = cbind(tmp.pred.df,habit="forb")
+              tmp.pred.df = rbind(a,b)
+
+            } else {
+              
+              x = mean(tmp.dats.us[j][[1]])
+              tmp.pred.df = cbind(tmp.pred.df,x)
+              names(tmp.pred.df)[ncol(tmp.pred.df)] = j
+          }
+          
+
+
+        } 
+      
+      }
+      
+      if(spp.i == "Potentilla"){
+        
+        tmp.pred.df = tmp.pred.df %>% mutate(perenneating = case_when(habit=="shrub"~"woody",
+                                                                      habit=="forb"~"below"))
+        
+      }
+      
+      ##### End build predict DF #####
+     
+      ##### Predict, plot, and save ##### 
+      tmp.pred.df = tmp.pred.df %>% 
+        mutate(pred.endcover = predict(best.mod.us, newdata = tmp.pred.df,re.form=NA),
+               pred.change = pred.endcover - startcover) 
+      
+      if(main_term=="habit"){
+        
+        ggplot(tmp.pred.df,aes(x=eval(as.name(main_term)),y=pred.change,pattern=eval(as.name(main_term))))+
+          ggpattern::geom_col_pattern(position="dodge", pattern_fill = "grey50",
+                   fill = "white", colour = "grey50", pattern_spacing = 0.05,
+                   pattern_frequency = 1, pattern_angle = 45)+
+          theme_clean(base_size = 16)+
+          labs(x=main_term_title,y="Change in cover")+
+          ggpattern::scale_pattern_manual(values=c('stripe', 'none'))+
+          theme(legend.position = "none",
+                plot.background = element_rect(linewidth = 0))
+        
+      } else if(spp.i=="Potentilla" & main_term!="habit"){
+       
+         ggplot(tmp.pred.df,aes(x=eval(as.name(main_term)),y=pred.change,group=perenneating))+
+          geom_hline(yintercept = 0,color="grey90",linewidth=1)+
+          geom_line(aes(linetype=habit),linewidth=0.75)+
+          theme_clean(base_size = 16)+
+          scale_linetype_manual(values=c(2,1))+
+          labs(x=main_term_title,y="Change in cover")+
+          theme(legend.title = element_blank(),
+                panel.grid.major = element_line(linewidth = 0.5),
+                legend.background = element_blank(),
+                legend.key.width = unit(1, 'cm'),
+                legend.position = "none",
+                plot.background = element_rect(linewidth = 0))
+        
+      } else {
+      
+      ggplot(tmp.pred.df,aes(x=eval(as.name(main_term)),y=pred.change))+
+        geom_hline(yintercept = 0,color="grey70",linewidth=1)+
+        geom_line()+
+        theme_clean(base_size = 16)+
+        labs(x=main_term_title,y="Change in cover")+
+        theme(plot.background = element_rect(linewidth = 0))
+     
+         }
+      ggsave(paste0("./Results/AppendixFigures/SOI/",spp.i,"/",spp.i,"_",main_term,".png"),h=5,w=6,dpi=300)
+   
+  } ####### End main effect plots #########
+  rm(tmp.pred.df,best.mod,best.mod.us,main_term,main_term_seq)  
+  }
+}
+# rm(tmp.dats,mod.i,dredge.mod.i,param.estimates,spp.var,per.var,hab.var,plots,i,j,t,x,spp.i,a,b,j_term,l.var,other_terms,type,terms,terms.selected)
+write.csv(climVar.param.ests,"./Results/SOI_Varmod.param.ests.csv")
+
+```
+
+## SOI change cover vs starting cover
+```{r soi_change_vs_starting}
+
+for(soi in mod_SOIs){
+  
+   # get name of species or genus
+  
+  x = unlist(str_split(soi,pattern = " ")) %>% length()
+  if(x==1){type="genus"}
+  if(x==2){type="species"}
+  if(soi=="gram"){type="gram"}
+  
+  ##### Genus model string and data if statement ######
+  #### Specifying a model string based on genus (potentially multiple species)
+  if(type=="genus"){ # if fitting mod for a genus
+    
+    # Filter data for genus O.I.
+    tmp.dats.us = filter(dats.unscaled,genus == soi)
+    
+    } else if(type=="gram"){ # if fitting mod for a genus
+    
+    # Filter data for grams
+    tmp.dats.us = filter(dats.unscaled,habit=="gram")
+    
+    } else if(type=="species") {
+
+    tmp.dats.us = filter(dats.unscaled,sciname == soi)
+
+    }
+  
+  ggplot(tmp.dats.us,aes(x=startcover,y=changecover))+
+    geom_smooth(method = "lm",se=F,color="grey")+
+    geom_point(alpha=0.6,stroke=0,size=2) +
+    theme_clean(base_size = 16)+
+    labs(x="Start cover",y="Change in cover")+
+    theme(plot.background = element_rect(linewidth = 0))
+  
+  ggsave(paste0("./Results/AppendixFigures/SOI/",soi,"/",soi,"_change_vs_start.png"),h=5,w=6,dpi=300)
+  
+}
+
+```
+
+```{r SOI summary plot}
+# 
+# df = dats.unscaled %>% 
+#   select(genus,sciname,park,summit,aspect,transition,changecover) 
+# 
+# soi_df = NULL
+# for(i in 1:nrow(soi)){
+#   
+#   if(is.na(soi$species[i])){ 
+#     
+#     tmp = filter(df,genus==soi$genus[i]) %>% 
+#       mutate(soi_group = genus) %>% 
+#       group_by(park,soi_group) %>% 
+#       mutate(mean.change = mean(changecover))
+#     
+#   } else {
+#     tmp = filter(df,sciname==soi$sciname[i]) %>% 
+#       mutate(soi_group = sciname) %>% 
+#       group_by(park,soi_group) %>% 
+#       mutate(mean.change = mean(changecover))     
+#     }
+#   
+#   soi_df = rbind(soi_df,tmp) %>% unique()
+#   
+# }
+# 
+# mean.change = soi_df %>% 
+#   select(park,soi_group,mean.change) %>% 
+#   unique()
+# 
+# ggplot(soi_df,aes(x=soi_group,y=changecover))+
+#   geom_hline(yintercept = 0,color="grey")+
+#   geom_point(size=2.5,alpha=0.25,stroke=0)+
+#   geom_point(data=mean.change,size=3,aes(x=soi_group,y=mean.change,color=mean.change>0))+
+#   coord_flip()+
+#   facet_wrap(~park,ncol=5)+
+#   theme_bw(base_size = 16)+
+#   labs(y = "Change in % cover",color = "Mean change")+
+#   scale_color_manual(values=c("red","blue"),labels=c("Positive","Negative")) +
+#   theme(panel.grid.major = element_line(linewidth=0.5),
+#         axis.title.y = element_blank(),
+#         panel.grid.major.x = element_blank(),
+#         panel.grid.minor.x = element_blank())+
+#   scale_x_discrete(limits=rev)
+# ggsave("Results/Species_of_Interest/SOIbyParkOverview.png",dpi=300,h=8,w=13)
+# 
+# df2 = soi_df %>% 
+#   group_by(park,soi_group) %>% 
+#   summarize(min.changecover = min(changecover),
+#          max.changecover = max(changecover),
+#          n.obs = n()) %>% 
+#   mutate(all.neg = ifelse(min.changecover<0&max.changecover<0,"yes","no"),
+#          all.pos = ifelse(min.changecover>0&max.changecover>0,"yes","no"))
+# 
+# df3 = soi_df %>% 
+#   group_by(soi_group) %>% 
+#   summarize(min.changecover = min(changecover),
+#          max.changecover = max(changecover),
+#          n.obs = n()) %>% 
+#   mutate(all.neg = ifelse(min.changecover<0&max.changecover<0,"yes","no"),
+#          all.pos = ifelse(min.changecover>0&max.changecover>0,"yes","no"))
+# 
+# df4 = soi_df %>% 
+#   group_by(park,tr.num,soi_group) %>% 
+#   summarize(min.changecover = min(changecover),
+#          max.changecover = max(changecover),
+#          n.obs = n()) %>% 
+#   mutate(all.neg = ifelse(min.changecover<0&max.changecover<0,"yes","no"),
+#          all.pos = ifelse(min.changecover>0&max.changecover>0,"yes","no"))
+
+```
+

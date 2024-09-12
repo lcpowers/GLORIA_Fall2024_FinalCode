@@ -1,0 +1,341 @@
+---
+title: "Data prep for soil T interpolation models"
+author: "Claire Powers"
+date: "2/5/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This script prepares data for the models that fill in missing temperature data with linear and binomial models. 
+
+Clear environment
+```{r clearenv}
+rm(list=ls())
+```
+
+Packages
+```{r packages}
+library(tidyverse)
+library(lubridate)
+library(zoo)
+options(scipen = 999)
+```
+
+Raw soil T and PRISM data
+```{r rawdata}
+# Read in raw soil T data and remove first column
+rawclimate <- read_csv("./InputData/byClaire/all_raw_temp.csv") %>% filter(aspect %in% c("N","S","E","W"))
+
+# Read in prism data
+prism_files <- list.files("./InputData/climate/prism/", pattern = ".csv",full.names = T)
+prism <- NULL
+
+for(i in prism_files){
+
+  summiti <- str_sub(string = basename(i),start = 1,end = 3)
+  df <- read_csv(i,skip=10) %>%
+    mutate(summit=summiti) %>%
+    select(summit,date=Date,ppt="ppt (mm)",
+           tmean="tmean (degrees C)",tmax="tmax (degrees C)",tmin="tmin (degrees C)") %>%
+    mutate(trange=tmax-tmin)
+  
+  df$ppt.5dsum <- round(rollsum(x = df$ppt,k = 5,align = "right",fill=NA),3)
+  df$ppt.10dsum <- round(rollsum(x = df$ppt,k = 10,align = "right",fill=NA),3)
+  df$ppt.30dsum <- round(rollsum(x = df$ppt,k = 30,align = "right",fill=NA),3)
+  df$ppt.5davg <- round(rollmean(x = df$ppt,k = 5,align = "right",fill=NA),3)
+  df$ppt.10davg <- round(rollmean(x = df$ppt,k = 10,align = "right",fill=NA),3)
+  df$ppt.30davg <- round(rollmean(x = df$ppt,k = 30,align = "right",fill=NA),3)
+ 
+  prism <- rbind(prism,df)
+
+  rm(df,i,summiti)
+}
+
+rm(prism_files)
+```
+
+WBM data
+```{r daymet}
+
+# Get unique park and aspect codes
+aspects <- unique(rawclimate$aspect)
+parks <- unique(rawclimate$park[rawclimate$park!="PEC"])
+
+# Initiate WB Model data frame
+wbm_data <- NULL
+
+for(park in parks){
+  summits <- unique(rawclimate$summit[rawclimate$park==park])
+  
+  for(i in summits){
+    for(j in aspects){
+      
+      psm <- paste(park,i,j,sep = "_")
+      
+      df <- read_csv(paste0("../InputData/inputClim/waterbalanceoutput/",psm,".csv")) %>% 
+        mutate(park=park,summit=i,aspect=j) %>% 
+        select(date,park,summit,aspect,wbm_rain=RAIN,wbm_snow=SNOW,wbm_pack=PACK) 
+      df$date <- as.Date(strptime(as.character(df$date), "%m/%d/%Y"))
+      
+      wbm_data <- rbind(wbm_data,df)
+    }
+  }
+}
+
+## Data from wbm output is the same for all aspects on the same summit. Removing aspect column below
+wbm_data <- wbm_data %>% select(-aspect) %>% unique()
+
+```
+
+1. Read in compiled raw climate data (Includes raw data for all parks)
+```{r agg_rawsoilT}
+
+###### This generates new daily data. Commented out unless need to re-do for some reason #######
+# rawclimate$park <- as.factor(rawclimate$park)
+# rawclimate$summit <- as.factor(rawclimate$summit)
+# rawclimate$plot <- as.factor(rawclimate$plot)
+# rawclimate$aspect <- as.factor(rawclimate$aspect)
+# rawclimate$date <- as.Date(rawclimate$date)
+# 
+# summits <- unique(as.character(rawclimate$summit))
+# 
+# dailyT <- NULL
+# 
+# for(i in summits){
+#   # find mean T by day for individual aspects on summit i.
+#   # Use all columns that we want to keep as grouping variable
+#   tmp_summit <- filter(rawclimate,summit == i) %>%
+#     group_by(park,summit,aspect,date,year,month,day) %>%
+#     dplyr::summarise(tmean=(max(tempC)+min(tempC))/2, # Find daily mean based on daily min and max values so that these means are determined the same way as PRISM daily means
+#               tmax=max(tempC,na.rm=T),
+#               tmin=min(tempC,na.rm=T),
+#               trange=(tmax-tmin),
+#               q25tval=quantile(tempC,0.25),
+#               q25tmean=mean(tempC[tempC<=q25tval],na.rm=T),
+#               n_obs = dplyr::n(),
+#               .groups = "drop")
+# 
+#   # Find unique aspects for current summit. This only matters for the 2 summits with missing aspect data in Pe
+#   aspects <- unique(tmp_summit$aspect) %>% as.character()
+# 
+#   for(j in aspects){
+# 
+#     # Filter summit data for aspect j
+#     tmp_aspect <- tmp_summit %>%
+#       filter(aspect==j)
+# 
+#     # Create dataframe of complete date range by day
+#     tmp_date_range = data.frame(missing_dates=seq.Date(from = min(tmp_aspect$date,na.rm=T),
+#                                                        to = max(tmp_aspect$date,na.rm=T),
+#                                                        by = 1),
+#                                 park=tmp_aspect$park[1],summit=i,aspect=j) %>%
+#       mutate(year=year(missing_dates),
+#              month=month(missing_dates),
+#              day=day(missing_dates))
+# 
+#     # Merge full date range with tmp_aspect dataframe, keeping all possible dates
+#     tmp_aspect <- merge(tmp_aspect,tmp_date_range,
+#                       by.x=c('date','park','summit','aspect','year','month','day'),
+#                       by.y=c('missing_dates','park','summit','aspect','year','month','day'),
+#                       all.y = T)
+# 
+#     # Put zero values into nobs column where tmean = NA (which is where dates were added)
+#     tmp_aspect$n_obs[is.na(tmp_aspect$tmean)]=0
+# 
+#     # Bind with full data frame
+#     dailyT = rbind(dailyT,tmp_aspect)
+#   }
+# 
+#   # assign(paste0(i,"_alldates"),tmp_output)
+# 
+#   rm(tmp_summit,tmp_date_range,tmp_aspect)
+# 
+# }
+# 
+# # Add growing season column
+# grwszndates <- seq(as.Date('2020-07-25'),as.Date('2020-09-25'),by='days')
+# grwszndates <-  format(grwszndates,format="%m-%d")
+# dailyT$grwszn <- ifelse(format(dailyT$date,format="%m-%d") %in% grwszndates,1,0)
+# 
+# rm(grwszndates)
+# 
+# write_csv(dailyT,paste0("./InputData/byClaire/allparks_dailysoilTs_",Sys.Date(),".csv"))
+# # Nov 1 2022 was last run of this
+###### This generates new daily data. Commented out unless need to re-do for some reason #######
+
+# remember to change to most recent data if needed. Current most recent data is Nov 1
+dailyT <- read_csv("./InputData/byClaire/allparks_dailysoilTs_2022-11-01.csv")
+
+# Separate daily T and separate into parks (and read in if top of chunk not run)
+RMN <- filter(dailyT,park=="RMN"&aspect!="C") # 63335 rows (65941 rows with aspect=="C")
+YNP <- filter(dailyT,park=="YNP") # 52547 rows
+GSD <- filter(dailyT,park=="GSD") # 61413 rows
+GNP <- filter(dailyT,park=="GNP"&aspect!="HSP"&!aspect%in%c("NW","SW","SE")) # 72946 rows (77278 rows with NW, SW, SE) (83821 rows with aspect=="HSP")
+PEC <- filter(dailyT,park=="PEC")
+```
+
+2. Create df/csv to use in models that predict missing mean t values
+```{r tmean_data}
+
+# Create data.frames for each pack which will be used to interpolated climate. Columns should be park, summit, date, then temperature for each park-summit combo, and prism temps
+parks <- c("GSD","RMN","YNP","GNP") # No pecos because no missing T data @ pecos
+
+for(parki in parks){
+  
+  # Grab climate data for park i
+  parkdf <- eval(as.name(parki))
+  
+  # Create summit*aspect column
+  parkdf$summitaspect <- paste(parkdf$summit,parkdf$aspect,sep = "_")
+  
+  # Convert to wide format using date as ID var
+  parkdfwide <- pivot_wider(data = parkdf,id_cols = c(date),names_from = summitaspect,values_from = c(tmean,q25tmean),names_sep = ".")
+  
+  # get prism data for current park
+  parkiprism <- prism %>% 
+    filter(summit%in%parkdf$summit)
+  
+  # Convert prism data to wide format using date as ID var. This only keeps tmean values from prism temp. Keep diff, min, and max for variance
+  prismwide <- pivot_wider(parkiprism,id_cols=c(date),names_from=summit,values_from=c(tmean,tmin),names_sep = ".")
+  for(coli in 2:ncol(prismwide)) { colnames(prismwide)[coli] = paste('PR',colnames(prismwide)[coli],sep = ".") }
+  
+  # merge soil T and prism data
+  parkdf <- merge(parkdfwide,prismwide)
+  
+  # Create a DOY column
+  parkdf$doy = yday(parkdf$date)
+  parkdf$doysq = parkdf$doy^2
+
+  # give df unique name
+  assign(paste0(parki,"_allT"),parkdf)
+  
+  write_csv(eval(as.name(paste0(parki,"_allT"))),paste0("./InputData/byClaire/",parki,"_dailyT_moddata.csv"))
+  
+  # keep environment clean
+  rm(parkdf,parkdfwide,parkiprism,prismwide, parki)
+  
+}
+
+```
+
+3. Create df/csv to use in models that predict t range model values
+```{r trange_data}
+# Create data.frames for each pack which will be used to interpolated climate. Columns should be park, summit, date, then temperature for each park-summit combo, and prism temps
+
+parks <- c("GSD","RMN","YNP","GNP") # No pecos because no missing T data @ pecos
+
+for(parki in parks){
+  
+  # Grab soil T data for park i
+  parkdf <- eval(as.name(parki))
+  
+  # If number of daily observations is less than 20, change rangeT value to NA
+  parkdf$trange[parkdf$n_obs<20]=NA
+  
+  # Create summit*aspect column
+  parkdf$summitaspect <- paste(parkdf$summit,parkdf$aspect,sep = "_")
+  
+  # Add snow cover column
+  parkdf$snowbinary <- ifelse(parkdf$tmean<=2 & parkdf$trange<=1,1,0)
+  # parkdf$snow <- as.factor(parkdf$snow)
+  
+  # Convert to wide format using date as ID var
+  parkdfwide <- pivot_wider(data = parkdf,id_cols = c(date),names_from = summitaspect,values_from = c(trange,tmean,q25tmean,snowbinary),names_sep = ".")
+  
+  
+  # Get wbm data for park i
+  parkiwbm <- filter(wbm_data,park==parki & date>=min(parkdf$date))
+  wbmwide <- pivot_wider(parkiwbm,id_cols=date,names_from = summit,values_from = c(wbm_rain,wbm_snow,wbm_pack))
+  
+  
+  
+  # get prism data for current park
+  parkiprism <- prism %>% filter(summit%in%parkdf$summit)
+  
+  # Convert prism data to wide format using date as ID var. This only keeps tmean values from prism temp. Keep diff, min, and max for variance
+  prismwide <- pivot_wider(parkiprism,id_cols=c(date),names_from=summit,values_from=c(ppt,
+                                                                                      ppt.5dsum,ppt.10dsum,ppt.30dsum,
+                                                                                      ppt.5davg,ppt.10davg,ppt.30davg,
+                                                                                      tmean,trange),names_sep = ".")
+  for(coli in 2:ncol(prismwide)) { colnames(prismwide)[coli] = paste('PR',colnames(prismwide)[coli],sep = ".") }
+  
+  # merge soil T and prism data
+  parkdf <- merge(parkdfwide,prismwide) %>% merge(.,wbmwide)
+  
+  # Create a DOY column
+  parkdf$doy = yday(parkdf$date)
+  parkdf$doysq = parkdf$doy^2
+  
+  # give df unique name
+  assign(paste0(parki,"_allRange"),parkdf)
+  
+  write_csv(eval(as.name(paste0(parki,"_allRange"))),paste0("./InputData/byClaire/",parki,"_dailyRange_moddata.csv"))
+  
+  # keep environment clean
+  rm(parkdf,parkdfwide,parkiprism,prismwide, parki)
+
+  }
+
+```
+
+4. Create df/csv to use in models that predict log t range model values
+```{r trange_data}
+# Create data.frames for each pack which will be used to interpolated climate. Columns should be park, summit, date, then temperature for each park-summit combo, and prism temps
+
+parks <- c("GSD","RMN","YNP","GNP") # No pecos because no missing T data @ pecos
+
+for(parki in parks){
+  
+  # Grab soil T data for park i
+  parkdf <- eval(as.name(parki))
+  parkdf$logrange1 <- log1p(parkdf$trange)
+  parkdf$logrange.1 <- log(parkdf$trange+0.1)
+  
+
+  # If number of daily observations is less than 20, change rangeT value to NA
+  parkdf$trange[parkdf$n_obs<20]=NA
+  
+  # Create summit*aspect column
+  parkdf$summitaspect <- paste(parkdf$summit,parkdf$aspect,sep = "_")
+  
+  # Add snow cover column
+  parkdf$snow <- ifelse(parkdf$tmean<=2 & parkdf$trange<=1,1,0)
+  # parkdf$snow <- as.factor(parkdf$snow)
+  
+  # Convert to wide format using date as ID var
+  parkdfwide <- pivot_wider(data = parkdf,id_cols = c(date),names_from = summitaspect,
+                            values_from = c(logrange1,logrange.1,tmean,q25tmean,snow),
+                            names_sep = ".")
+  
+  # get prism data for current park
+  parkiprism <- prism %>% 
+    filter(summit%in%parkdf$summit)
+  
+  # Convert prism data to wide format using date as ID var. This only keeps tmean values from prism temp. Keep diff, min, and max for variance
+  prismwide <- pivot_wider(parkiprism,id_cols=c(date),names_from=summit,values_from=c(ppt,
+                                                                                      ppt.5dsum,ppt.10dsum,ppt.30dsum,
+                                                                                      ppt.5davg,ppt.10davg,ppt.30davg,
+                                                                                      tmean,trange),names_sep = ".")
+  for(coli in 2:ncol(prismwide)) { colnames(prismwide)[coli] = paste('PR',colnames(prismwide)[coli],sep = ".") }
+  
+  # merge soil T and prism data
+  parkdf <- merge(parkdfwide,prismwide)
+  
+  # Create a DOY column
+  parkdf$doy = yday(parkdf$date)
+  parkdf$doysq = parkdf$doy^2
+  
+  # give df unique name
+  assign(paste0(parki,"_allRange"),parkdf)
+  
+  write_csv(eval(as.name(paste0(parki,"_allRange"))),paste0("./InputData/byClaire/",parki,"_logrange_moddata.csv"))
+  
+  # keep environment clean
+  rm(parkdf,parkdfwide,parkiprism,prismwide, parki)
+
+  }
+
+```
