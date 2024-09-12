@@ -1,13 +1,13 @@
 ### Preparing 1x1m veg data ###
 
-# Packages needed
+# Clean environment
+rm(list=ls())
+
+# Packages 
 library(tidyverse)
 library(reshape2)
 library(data.table)
 library(readxl)
-
-# Clean environment
-rm(list=ls())
 
 # Files are referenced with the current working directory set to the level of the directory containing "GLORIA_Fall2024_FinalCode.Rproj"
 setwd("~/Desktop/CurrentProjects/GLORIA_Fall2024_FinalCode")
@@ -16,7 +16,7 @@ setwd("~/Desktop/CurrentProjects/GLORIA_Fall2024_FinalCode")
 not_all_na <- function(x) any(!is.na(x))
 
 ###### Bring in combined veg data from YELL, ROMO, and GRSD. PECO read in later next #####
-veg_3parks <- read_csv("./InputData/vegetation/NPS_IMD_GLORIA_Vegetation_2287428_DataPackage/NPS_IMD_GLORIA_Vegetation_2287428_Vegetation1x1-dataset.csv") %>% 
+veg_3parks <- read_csv("./Data/vegetation/NPS_IMD_GLORIA_Vegetation_2287428_DataPackage/NPS_IMD_GLORIA_Vegetation_2287428_Vegetation1x1-dataset.csv") %>% 
   select(park=Park,summit=Summit,year=Year, 
          plot=Plot,aspect=PlotAspect,
          GLORIA_SciName=GLORIA_SciName,cover=VisualCover) %>% 
@@ -28,7 +28,7 @@ veg_3parks <- read_csv("./InputData/vegetation/NPS_IMD_GLORIA_Vegetation_2287428
   select(park,summit,aspect,plot,year,sciname,cover) %>% 
   filter(park!="PEC")
 
-pec <- read_csv("./InputData/vegetation/PECO_Summary_1x1Vegetation_AllSchema_20220506_Revised.csv") %>% 
+pec <- read_csv("./Data/vegetation/PECO_Summary_1x1Vegetation_AllSchema_20220506_Revised.csv") %>% 
   select(park=Park,summit=Summit,year=Year, 
          plot=Plot,aspect=PlotAspect,
          sciname=species_name,cover=VisualCover) %>% 
@@ -54,7 +54,7 @@ rm(pec,veg_3parks)
 ###### Bring in Glacier NP 1x1 veg Data ######
 
 ## 2003-2014 data
-veg_glac1 <- read_csv("./InputData/vegetation/GLAC_GLORIA_Data_For_CU/glac_0314_cover.csv") %>%
+veg_glac1 <- read_csv("./Data/vegetation/GLAC_GLORIA_Data_For_CU/glac_0314_cover.csv") %>%
   select(where(not_all_na)) %>% 
   select(-Comments) %>% 
   reshape2::melt(., id.vars = c("Summit","Year","plot"), 
@@ -64,7 +64,7 @@ veg_glac1 <- read_csv("./InputData/vegetation/GLAC_GLORIA_Data_For_CU/glac_0314_
 #####
 
 ## 2019 data
-veg_glac2 <- read_csv("./InputData/vegetation/GLAC_GLORIA_Data_For_CU/glac_19_cover.csv") %>%
+veg_glac2 <- read_csv("./Data/vegetation/GLAC_GLORIA_Data_For_CU/glac_19_cover.csv") %>%
   select(where(not_all_na)) %>% 
   select(-Comments) %>% 
   reshape2::melt(., id.vars = c("Summit","Year","plot"), 
@@ -83,7 +83,7 @@ rm(veg_glac1,veg_glac2,veg_glac3)
 ######
 
 ###### Match GLAC species code to spec names using crosswalk table from Erin ######
-glac_crosswalk <- read_csv("./InputData/vegetation/GLAC_GLORIA_Data_For_CU/GLAC_GLORIAnames_2003_2014v2_crosswalk_complete.csv") %>% 
+glac_crosswalk <- read_csv("./Data/vegetation/GLAC_GLORIA_Data_For_CU/GLAC_GLORIAnames_2003_2014v2_crosswalk_complete.csv") %>% 
   select(-USDA_Code)
 colnames(glac_crosswalk)[1] <- "speccode"
 glac_crosswalk$speccode = as.character(glac_crosswalk$speccode)
@@ -104,21 +104,21 @@ veg_all$sciname[veg_all$park=="YNP"&veg_all$sciname=="Carex filifolia"] = "Carex
 veg_all$sciname[veg_all$park=="GSD"&veg_all$sciname=="Artemisia campestris"] = "Artemisia scopulorum"
 
 # write output dataset that does not include zeros
-write_csv(veg_all,paste0("./InputData/IntermediateData/all_1x1veg_no0s_final.csv"))
+write_csv(veg_all,paste0("./Data/IntermediateData/all_1x1veg_no0s_final.csv"))
 
 # #### Create species list from 1x1 veg data ######
 # spec_list <- veg_all %>%
 #   select(sciname) %>%
 #   unique()
 # 
-# glor_speclist <- read_excel("./InputData/vegetation/SpeciesList_YELL_ROMO_GRSA_PEC.xlsx") %>%
+# glor_speclist <- read_excel("./Data/vegetation/SpeciesList_YELL_ROMO_GRSA_PEC.xlsx") %>%
 #   select(GLORIA_SciName,family=Plants_Family) %>%
 #   separate(GLORIA_SciName,into = c("genus","species")) %>%
 #   mutate(sciname=paste(genus,species)) %>%
 #   select(sciname,family) %>%
 #   unique()
 # 
-# spec_list <- read_csv("./InputData/speciestraits/allparks_speclist_20220124 traits.csv")
+# spec_list <- read_csv("./Data/speciestraits/allparks_speclist_20220124 traits.csv")
 # 
 
 # Expand the vegetation data to include meaningful zeros. 
@@ -166,4 +166,4 @@ for(s in summits){
 }
 
 # Write output data set that includes meaningful zeros
-write_csv(all_1x1veg,paste0("./InputData/IntermediateData/all_1x1veg_w0s_final.csv"))
+write_csv(all_1x1veg,paste0("./Data/IntermediateData/all_1x1veg_w0s_final.csv"))
