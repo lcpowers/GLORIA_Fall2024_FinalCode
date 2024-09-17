@@ -1,9 +1,3 @@
----
-title: "Compile dataset for analyses"
-author: "Claire Powers"
-date: '2023-04-13'
-output: html_document
----
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -31,11 +25,6 @@ library(tidyverse)
 library(reshape2)
 library(lubridate)
 library(ggfortify)
-# library(ggbiplot)
-
-# not_all_na <- function(x) any(!is.na(x))
-# not_any_na <- function(x) all(!is.na(x))
-# all_zero <- function(x) all(x==0)
 
 # parks north to south
 parks_ns = c("GNP","YNP","RMN","GSD","PEC")
@@ -43,12 +32,12 @@ parks_ns = c("GNP","YNP","RMN","GSD","PEC")
 
 ## Read in data
 ```{r data}
-siteinfo = read_csv("./InputData/siteInfo/summitcoordinates.csv") %>% 
+siteinfo = read_csv("./Data/siteInfo/summitcoordinates.csv") %>% 
   dplyr::select(park,summit,sitelat=lat,sitelong=long,siteelev=elev)
 
-traits = read_csv("./InputData/speciestraits/allparks_speclist_20220124 traits.csv")
+traits = read_csv("./Data/speciestraits/allparks_speclist_20220124 traits.csv")
 
-veg <- read_csv("./InputData/IntermediateData/all_1x1veg_w0s_final.csv") %>% 
+veg <- read_csv("./Data/IntermediateData/all_1x1veg_w0s_final.csv") %>% 
   group_by(park,summit,aspect,year,sciname) %>% 
   summarise(cover=mean(cover)) %>% 
   merge(.,siteinfo,by=c("park","summit")) %>% 
@@ -60,19 +49,21 @@ veg <- read_csv("./InputData/IntermediateData/all_1x1veg_w0s_final.csv") %>%
 veg$park <- factor(veg$park,levels = parks_ns)
 
 # Range data
-ranges = read_csv("./InputData/IntermediateData/species_range_summary.csv")
+ranges = read_csv("./Data/IntermediateData/species_range_summary.csv")
 ranges$sciname <- str_to_sentence(ranges$sciname)
 ranges = ranges[ranges$n_obs>1,]
 ranges = select(ranges,-c(n_obs,n_obs1090))
 
 # water balance data
-wbdata = read_csv("./InputData/IntermediateData/dailyWBdata.csv")
+wbdata = read_csv("./Data/IntermediateData/dailyWBdata.csv")
 
 # Growing season dates (month-day)
+# Temperature
 t.gs.start.date = "07-01"
 t.grwszn = seq(as.Date(t.gs.start.date,format='%m-%d'),as.Date("09-25",format='%m-%d'),by="day")
 t.grwszn = format(t.grwszn,"%m-%d")
 
+# Precip
 ppt.gs.start.date = "06-01"
 ppt.grwszn = seq(as.Date(ppt.gs.start.date,format='%m-%d'),as.Date("09-25",format='%m-%d'),by="day")
 ppt.grwszn = format(ppt.grwszn,"%m-%d")
@@ -83,7 +74,7 @@ ppt.grwszn = format(ppt.grwszn,"%m-%d")
 ```{r GNP}
 
 gnp_veg <- filter(veg, park=="GNP")
-gnp_clim <- read_csv("./InputData/byClaire/InterpDailyT/GNP_meandailyT.csv") 
+gnp_clim <- read_csv("./Data/IntermediateData/FilledTempData/GNP_meandailyT.csv") 
 summits <- unique(gnp_veg$summit)
 
 gnp_Ts <- NULL
@@ -149,14 +140,13 @@ for(s in summits){
 rm(startyr,endyr,years,summits,s,i,startcover,endcover,tmp,clim)
 ```
 
-
 # Rocky Mountain National Park
 - 2010 -> 2014 -> 2019
 ```{r RMN}
 
 rmn_veg <- filter(veg, park=="RMN")
 summits <- unique(rmn_veg$summit)
-rmn_clim <- read_csv("./InputData/byClaire/InterpDailyT/RMN_meandailyT.csv")
+rmn_clim <- read_csv("./Data/IntermediateData/FilledTempData/RMN_meandailyT.csv")
 
 rmn_Ts <- NULL
 
@@ -206,14 +196,13 @@ for(s in summits){
 rm(startyr,endyr,years,summits,s,i,startcover,endcover,tmp,clim)
 ```
 
-
 # Yellowstone National Park
 - 2011 -> 2016
 ```{r YNP}
 
 ynp_veg <- filter(veg, park=="YNP")
 summits <- unique(ynp_veg$summit)
-ynp_clim <- read_csv("./InputData/byClaire/InterpDailyT/YNP_meandailyT.csv")
+ynp_clim <- read_csv("./Data/IntermediateData/FilledTempData/YNP_meandailyT.csv")
 
 ynp_Ts <- NULL
 
@@ -263,14 +252,13 @@ for(s in summits){
 rm(startyr,endyr,years,summits,s,i,startcover,endcover,tmp,clim)
 ```
 
-
 ## Great Sand Dunes National Park
 - 2009 -> 2015 -> 2020
 ```{r GSD}
 
 gsd_veg <- filter(veg, park=="GSD")
 summits <- unique(gsd_veg$summit)
-gsd_clim <- read_csv("./InputData/byClaire/InterpDailyT/GSD_meandailyT.csv")
+gsd_clim <- read_csv("./Data/IntermediateData/FilledTempData/GSD_meandailyT.csv")
 
 gsd_Ts <- NULL
 
@@ -319,14 +307,13 @@ for(s in summits){
 rm(startyr,endyr,years,summits,s,i,startcover,endcover,tmp,clim)
 ```
 
-
 ## Pecos Wilderness area
 - 2016 -> 2021
 ```{r PEC}
 
 pec_veg <- filter(veg, park=="PEC")
 summits <- unique(pec_veg$summit)
-pec_clim <- read_csv("./InputData/climate/NPS_IMD_GLORIA_SoilTemperature_2288176_DataPackage_UPDATED_Pecos/NPS_IMD_GLORIA_SoilTemperature_2288176_Raw-dataset.csv") %>% 
+pec_clim <- read_csv("./Data/climate/NPS_IMD_GLORIA_SoilTemperature_2288176_DataPackage_UPDATED_Pecos/NPS_IMD_GLORIA_SoilTemperature_2288176_Raw-dataset.csv") %>% 
   filter(Park=="USFS_PEC") %>% 
   mutate(park="PEC",
          date=as.Date(DateTime)) %>% 
@@ -383,23 +370,21 @@ for(s in summits){
 rm(startyr,endyr,years,summits,s,i,startcover,endcover,tmp,clim)
 ```
 
-
 ## Merge veg data together for all parks
 ```{r merge_all_veg}
 
-traits <- read_csv("./InputData/speciesTraits/allparks_speclist_20220124 traits.csv") 
-siteinfo <- read_csv("./InputData/byClaire/all_1x1veg_no0s_2022-11-01.csv") %>% 
-  select(park,summit,aspect=cat.aspect,slope) %>% unique() %>% merge(.,siteinfo)
+traits <- read_csv("./Data/speciesTraits/allparks_speclist_20220124 traits.csv") 
+siteinfo <- read_csv("./Data/IntermediateData/all_1x1veg_no0s_final.csv") %>% 
+  select(park,summit,aspect) %>% unique() %>% merge(.,siteinfo)
 
 all_parks <- rbind(gnp_Ts,gsd_Ts,rmn_Ts,ynp_Ts,pec_Ts) %>% 
   filter(!str_detect(sciname," sp$")) %>% 
   merge(.,traits,by="sciname") %>% 
   merge(.,siteinfo,by=c("summit","aspect")) %>% 
-  merge(.,sites.spp,by=c("sciname","summit"),all.x=T) %>% 
   merge(.,ranges,by="sciname",all.x=T) %>%
   mutate(changecover=(endcover-startcover),
          propchangecover=changecover/(startcover+0.1)) %>%
-  select(park,summit,aspect,slope,sitelat,siteelev,site.probD,site.s.probD,
+  select(park,summit,aspect,sitelat,siteelev,
          sciname,family,genus,species,
          perenneating=perennating,leaves,habit,taxunit=tax_unit,
          transition,startyear,startcover,endyear,endcover,
@@ -558,69 +543,14 @@ all_parks_h20yr_gs <- merge(all_parks_h20yr,wbm_grwszn,by=c("park","summit","asp
 
 ```
 
-
-# Bringing in sas abundance
-```{r SASabun}
-
-# The file name that is read in should be updated if that script (SASveg.R) is re-run
-abun <- read_csv("./InputData/byClaire/SASabundance-2022-11-07.csv") %>% 
-  group_by(sciname,park,summit,year,plot,aspect) %>% 
-  dplyr::summarize(abundance=sum(abundance,na.rm=T),.groups = "drop") %>% 
-  # filter(abundance>0) %>% 
-  arrange(year)
-
-summits <- unique(abun$summit)
-
-abun_wide = NULL
-
-for(s in summits){
-  
-  df = filter(abun, summit==s)
-  years = unique(df$year) %>% sort()
-  
-  for(i in 1:(length(years)-1)){
-    
-    syr = years[i]
-    eyr = years[i+1]
-      
-    tmp = filter(df,year==syr|year==eyr) %>% 
-      pivot_wider(id_cols = c(park,summit,aspect,sciname),
-                  names_from = c(year,plot),
-                  values_from = abundance,
-                  names_sep = ".",
-                  values_fill = 0) %>% 
-      mutate(transition=paste0(s,i))
-    
-    colnames(tmp)[colnames(tmp)==paste0(syr,".upper")]="start.upper"
-    colnames(tmp)[colnames(tmp)==paste0(syr,".lower")]="start.lower"
-    colnames(tmp)[colnames(tmp)==paste0(eyr,".upper")]="end.upper"
-    colnames(tmp)[colnames(tmp)==paste0(eyr,".lower")]="end.lower"
-    
-    abun_wide = rbind(abun_wide,tmp)
-    rm(tmp)
-  }
-}
-
-all_parks_h20yr_gs_abun = merge(all_parks_h20yr_gs,abun_wide,by=c("park","summit","aspect","transition","sciname"),all.x=T) %>% 
-  mutate(startcover0=ifelse(startcover==0,1,0),
-         endcover0=ifelse(endcover==0,1,0),
-         allcover0=ifelse(startcover+endcover==0,1,0),
-         expanded=ifelse(startcover<endcover,1,0),
-         contracted=ifelse(startcover>endcover,1,0),
-         nochange=ifelse(startcover==endcover,1,0),
-         no0 = ifelse(startcover0==0&endcover0==0,1,0))
-
-```
-
-
 # add in PC1 and PC2 based on climate vars
 ## keep water year and growing season ppt
 ```{r pc12}
 # partial names of climate variables in the dataset
-climcols = select(all_parks_h20yr_gs_abun,contains(c(".tmean",".snow",".gdd",".ppt",".pet",".aet"))) %>% 
+climcols = select(all_parks_h20yr_gs,contains(c(".tmean",".snow",".gdd",".ppt",".pet",".aet"))) %>% 
   names()
 
-pcadf = all_parks_h20yr_gs_abun %>% 
+pcadf = all_parks_h20yr_gs %>% 
   select(park,summit,aspect,transition,all_of(climcols)) %>% 
   na.omit() %>% 
   unique() %>% 
@@ -630,13 +560,9 @@ pcadf$park = factor(pcadf$park,levels=parks_ns)
 
 # Look at corr plot of climate vars
 climcor = cor(pcadf[c(climcols)])
-# corrplot::corrplot(climcor,diag=F,tl.cex=1.5)
 
 # PCA on climate cols of climdf
 climpca = prcomp(pcadf[climcols],scale. = T)
-# summary(climpca)
-
-# colpal = c(gnp_col,ynp_col,rmn_col,gsd_col,pec_col)
   
 # Plot PCA
 autoplot(climpca,data=pcadf,
@@ -644,77 +570,21 @@ autoplot(climpca,data=pcadf,
          loadings.label.colour="black",
          loadings.label=T,loadings.label.size=4,
          loadings.label.just=0, colour = 'park',fill="park",frame=TRUE,frame.type="convex",frame.alpha=0.1)+
-  scale_color_manual(values=park.pal)+
-  scale_fill_manual(values=park.pal)+
   theme_classic(base_size = 16)+
   theme(legend.title = element_blank())
 
-ggsave("Results/PCAplot.png",dpi=300,h=8,w=10)
 pcadf$aspect = factor(climdf$aspect,levels=c("N","S","E","W"))
 
 ### Look at PCs 1&2 vs climate vars
 pca_df = cbind(pcadf,climpca$x)
 plot_cols = names(pca_df[,5:22])
 
-# for(coli in plot_cols){
-#   
-#   pc1 = ggplot(pca_df,aes(x=PC1,y=eval(as.name(coli))))+
-#     geom_line()+
-#     #geom_smooth(method="lm")+
-#     stat_poly_line()+
-#     stat_poly_eq(label.x = "middle")+
-#     labs(y=coli)+
-#     theme_bw()
-#   
-#   pc2 = ggplot(pca_df,aes(x=PC2,y=eval(as.name(coli))))+
-#     geom_line()+
-#     stat_poly_line()+
-#     stat_poly_eq(label.x = "middle")+
-#     labs(y=coli)+
-#     theme_bw()
-#   
-#   print(plot_grid(pc1,pc2))
-#   
-# }
-
-#ggsave("pcaplot.png",w=10,h=5)
 
 pcdat = as.data.frame(climpca$x) %>% select(climPC1=PC1,climPC2=PC2) %>% 
   cbind(pcadf[,1:4],.)
 
-all_parks_h20yr_gs_abun_pca = merge(all_parks_h20yr_gs_abun,pcdat,by=c("park","summit","aspect","transition"),all.x=T)
+all_parks_h20yr_gs_pca = merge(all_parks_h20yr_gs,pcdat,by=c("park","summit","aspect","transition"),all.x=T)
 
-write_csv(all_parks_h20yr_gs_abun_pca,paste0("./AnalysisData/analysisdata_final.csv"))
-```
-
-
-```{r}
-
-veg_n0s <- veg %>% filter(cover>0)
-table(veg_n0s$perennating)
-
-full_hist = ggplot()+
-  geom_histogram(data = veg_n0s,aes(x=cover),bins=50,color="black",fill="grey90")+
-  theme_bw(base_size=14)+
-  scale_x_continuous(limits = c(0.0000001,50),expand=c(0.001,0))+
-  scale_y_continuous(expand=c(0.01,0),limits=c(0,950),breaks=seq(0,800,200))+
-  labs(x="% cover estimate",y="Count",title="A. Histogram of % cover estimates >0% used in analysis data")+
-  geom_label(aes(label="Total count = 4,401",x=45,y=920),size=5)+
-  theme(plot.title = element_text(face="bold"))
-full_hist  
-
-below5 <- veg %>% filter(cover>0&cover<5)
-
-zoom_hist = ggplot()+
-  geom_histogram(data=below5,aes(x=cover),bins=50,color="black",fill="grey90")+
-  theme_bw(base_size=14)+
-  scale_x_continuous(limits=c(0.000001,5),expand=c(0.001,0))+
-  scale_y_continuous(expand=c(0.01,0),limits=c(0,800),breaks=seq(0,600,200))+
-  labs(x="% cover estimate",y="Count",title="B. Histogram of % cover estimates >0% and <5% used in analysis data")+
-  geom_label(aes(label="Total count = 4,077",x=4.5,y=770),size=5)+
-  theme(plot.title = element_text(face="bold"))
-zoom_hist
-cowplot::plot_grid(full_hist,zoom_hist,ncol=1)
-ggsave("Results/Histogram of cover values.png",h=10,w=10)
+write_csv(all_parks_h20yr_gs_pca,paste0("Data/AnalysisData/specieslevel_analysisdata_final.csv"))
 ```
 

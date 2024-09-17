@@ -49,7 +49,7 @@ library(sjlabelled)
 library(performance)
 
 ### Read in and clean data
-dats.orig = read_csv('./AnalysisData/analysisdata_final.csv')
+dats.orig = read_csv('./AnalysisData/specieslevel_analysisdata_final.csv')
 dats=dats.orig %>% 
   drop_na(startcover,climPC1,climPC2,latmax1090,latmin1090,latmean1090,latmedian1090) %>% 
   filter(abs(changecover)<=20) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
