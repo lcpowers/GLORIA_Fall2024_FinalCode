@@ -24,13 +24,12 @@ library(reshape2)
 Read in t mean model data
 ```{r data}
 
-dailyT <- read_csv("./InputData/byClaire/allparks_dailyT_2022-11-01.csv")
+dailyT <- read_csv("./Data/IntermediateData/dailyT_unfilled.csv")
 
-GSD <- read_csv("./InputData/byClaire/GSD_dailyT_moddata.csv")
-RMN <- read_csv("./InputData/byClaire/RMN_dailyT_moddata.csv")
-YNP <- read_csv("./InputData/byClaire/YNP_dailyT_moddata.csv")
-GNP <- read_csv("./InputData/byClaire/GNP_dailyT_moddata.csv")
-
+GSD <- read_csv("./Data/IntermediateData/GSD_dailyT_moddata.csv")
+RMN <- read_csv("./Data/IntermediateData/RMN_dailyT_moddata.csv")
+YNP <- read_csv("./Data/IntermediateData/YNP_dailyT_moddata.csv")
+GNP <- read_csv("./Data/IntermediateData/GNP_dailyT_moddata.csv")
 ```
 
 
@@ -48,7 +47,7 @@ aspects <- c("N","S","E","W")
 GSD_nomissyr_df <- filter(GSD,!date%in%seq(as.Date('2013-09-18'),as.Date('2014-08-29'),by='days'))
 
 # This will store observed and predicted data in separate columns for reference
-predict_df <- GSD_nomissyr_df %>% select(date,starts_with('tmean'))
+predict_df <- GSD_nomissyr_df %>% dplyr::select(date,starts_with('tmean'))
 
 # This will store observed data and fill in NAs with predicted data in the same column
 filledNAs_df <- predict_df
@@ -64,14 +63,14 @@ for(i in summits){
     
     lm_df <- GSD %>% 
       filter(!date%in%seq(as.Date('2013-09-18'),as.Date('2014-08-29'),by='days')) %>% # Only applicable for GRSD
-      select(-date) %>% # get rid of date columns
-      select(-c(paste0("PR.tmean.",othersummits))) %>% # remove other summits' prism data
-      select(-contains("PR.tmin")) %>% 
-      select(paste0('tmean.',sum_asp),which(colSums(is.na(.))<10)) %>% # Keep mean t column for current sum*asp and any other columns with fewer than 10 NAs
+      dplyr::select(-date) %>% # get rid of date columns
+      dplyr::select(-c(paste0("PR.tmean.",othersummits))) %>% # remove other summits' prism data
+      dplyr::select(-contains("PR.tmin")) %>% 
+      dplyr::select(all_of(sum_asp),which(colSums(is.na(.))<10)) %>% # Keep mean t column for current sum*asp and any other columns with fewer than 10 NAs
       na.omit()
     
     # linear model predicting current sum*asp mean temp
-    tmp_lm <- lm(formula = paste0("tmean.",i,"_", j,' ~ .'),data = lm_df, na.action = "na.fail")
+    tmp_lm <- lm(formula = paste0(i,"_", j,' ~ .'),data = lm_df, na.action = "na.fail")
     tmp_dredge <- dredge(global.model = tmp_lm, extra = "R^2",fixed="doy")
     
     # Select the best model from dredge
@@ -85,7 +84,7 @@ for(i in summits){
     colnames(predict_df)[ncol(predict_df)] <- paste0("pred.tmean.",sum_asp)
     
     # Find column that contains observed t mean data for current sum*asp
-    colnum <- which(colnames(filledNAs_df)==paste0('tmean.',sum_asp))
+    colnum <- which(colnames(filledNAs_df)==paste0('pred.tmean.',sum_asp))
     
     # Fill in NA values in the filledNAs_df
     for(rownum in 1:nrow(filledNAs_df)){
@@ -294,7 +293,7 @@ GSD_final <- GSD_final_df %>%
   select(-x) %>% 
   mutate(park="GSD")
 colnames(GSD_final)[4] <- "tmean"
-write_csv(GSD_final,"./InputData/byClaire/InterpDailyT/GSD_meandailyT.csv")
+write_csv(GSD_final,"./Data/IntermediateData/InterpDailyT/GSD_meandailyT.csv")
 
 RMN_final <- RMN_filledNAs_df %>% 
   melt(id.vars="date") %>% 
@@ -303,7 +302,7 @@ RMN_final <- RMN_filledNAs_df %>%
   select(-x) %>% 
   mutate(park="RMN")
 colnames(RMN_final)[4] <- "tmean"
-write_csv(RMN_final,"./InputData/byClaire/InterpDailyT/RMN_meandailyT.csv")
+write_csv(RMN_final,"./Data/IntermediateData/InterpDailyT/RMN_meandailyT.csv")
 
 YNP_final <- YNP_filledNAs_df %>% 
   melt(id.vars="date") %>% 
@@ -312,7 +311,7 @@ YNP_final <- YNP_filledNAs_df %>%
   select(-x) %>% 
   mutate(park="YNP")
 colnames(YNP_final)[4] <- "tmean"
-write_csv(YNP_final,"./InputData/byClaire/InterpDailyT/YNP_meandailyT.csv")
+write_csv(YNP_final,"./Data/IntermediateData/InterpDailyT/YNP_meandailyT.csv")
 
 GNP_final <- GNP_filledNAs_df %>% 
   melt(id.vars="date") %>% 
@@ -321,6 +320,6 @@ GNP_final <- GNP_filledNAs_df %>%
   select(-x) %>% 
   mutate(park="GNP")
 colnames(GNP_final)[4] <- "tmean"
-write_csv(GNP_final,"./InputData/byClaire/InterpDailyT/GNP_meandailyT.csv")
+write_csv(GNP_final,"./Data/IntermediateData/InterpDailyT/GNP_meandailyT.csv")
 ```
 

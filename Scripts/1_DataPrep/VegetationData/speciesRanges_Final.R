@@ -2,45 +2,45 @@ rm(list=ls())
 
 library(tidyverse)
 library(sf)
-speclist <- read_csv("./InputData/speciesTraits/allparks_speclist_20220124 traits.csv")
+speclist <- read_csv("./Data/speciesTraits/allparks_speclist_20220124 traits.csv")
 
 not_all_na <- function(x) any(!is.na(x))
 
 # Read in data downloaded from idigbio. Most recent download on Feb 2
-# idigbio <- read_csv("./InputData/speciesRanges/idigbio_2022-02-02/occurrence_raw.csv")%>%
-#   select(where(not_all_na))
-# 
-# idigbiofltr <- idigbio %>%
-#   select(sciname=`dwc:scientificName`,
-#          lat=`dwc:decimalLatitude`,
-#          long=`dwc:decimalLongitude`,
-#          country=`dwc:country`,
-#          continent=`dwc:continent`,
-#          countrycode = `dwc:countryCode`)
-# 
-# write_csv(idigbiofltr, "./../InputData/speciesRanges/filtered_specRanges.csv")
-#
+idigbio <- read_csv("./Data/speciesRanges/idigbio_2022-02-02/occurrence_raw.csv")%>%
+  select(where(not_all_na))
+
+idigbiofltr <- idigbio %>%
+  select(sciname=`dwc:scientificName`,
+         lat=`dwc:decimalLatitude`,
+         long=`dwc:decimalLongitude`,
+         country=`dwc:country`,
+         continent=`dwc:continent`,
+         countrycode = `dwc:countryCode`)
+
+write_csv(idigbiofltr, "./../Data/speciesRanges/filtered_specRanges.csv")
+
 # After writing the above CSV, the points were read into QGIS and clipped using a shapefile of North America (downloaded from Princeton)
-# 
-# tetra = read_csv("./InputData/speciesRanges/tetraneuris.csv")%>%
-#   select(sciname=`dwc:scientificName`,
-#          lat=`dwc:decimalLatitude`,
-#          long=`dwc:decimalLongitude`,
-#          country=`dwc:country`,
-#          continent=`dwc:continent`,
-#          countrycod = `dwc:countryCode`) %>%
-#   unique()
-# 
-# tetra$sciname = "Tetraneuris brandegeei"
-# 
-# spp_pts <- read_sf("./InputData/speciesRanges/shapefiles/NA_spp_pts.shp") %>% 
-#   as.data.frame() %>% 
-#   dplyr::select(-geometry) %>% 
-#   filter(sciname!="Caloplaca sp"&sciname!="NA") %>% 
-#   rbind(.,tetra)
-# 
-# spp_pts$sciname <- tolower(spp_pts$sciname)
-# species <- unique(spp_pts$sciname)
+
+tetra = read_csv("./Data/speciesRanges/tetraneuris.csv")%>%
+  select(sciname=`dwc:scientificName`,
+         lat=`dwc:decimalLatitude`,
+         long=`dwc:decimalLongitude`,
+         country=`dwc:country`,
+         continent=`dwc:continent`,
+         countrycod = `dwc:countryCode`) %>%
+  unique()
+
+tetra$sciname = "Tetraneuris brandegeei"
+
+spp_pts <- read_sf("./Data/speciesRanges/shapefiles/NA_spp_pts.shp") %>%
+  as.data.frame() %>%
+  dplyr::select(-geometry) %>%
+  filter(sciname!="Caloplaca sp"&sciname!="NA") %>%
+  rbind(.,tetra)
+
+spp_pts$sciname <- tolower(spp_pts$sciname)
+species <- unique(spp_pts$sciname)
 
 # First find 10th and 90th percentile lat values for each species
 latqvals <- spp_pts %>% 
@@ -98,4 +98,4 @@ for(sp in species){
   
 }
 
-write_csv(spp_range_summ,"./InputData/IntermediateData/species_range_summary.csv")s
+write_csv(spp_range_summ,"./Data/IntermediateData/species_range_summary.csv")

@@ -4,13 +4,11 @@ library(tidyverse)
 library(reshape2)
 rm(list=ls())
 
-traits = read_csv("./InputData/speciestraits/allparks_speclist_20220124 traits.csv")
+traits = read_csv("./Data/speciestraits/allparks_speclist_20220124 traits.csv")
 parks_ns = c("GNP","YNP","RMN","GSD","PEC")
 
-specCover = read_csv("InputData/byClaire/all_1x1veg_no0s_2023-06-28.csv") %>% 
+specCover = read_csv("Data/IntermediateData/all_1x1veg_no0s_final.csv") %>% 
   merge(.,traits,by="sciname") 
-genus_data = filter(specCover,species=="sp")
-table(genus_data$park)
 
 vascCover = specCover %>% 
   filter(tax_unit!='lichen'&habit!="clubmoss"&habit!="fern") %>% 
@@ -22,13 +20,6 @@ vascCover = specCover %>%
          meanCover=mean(plotCover),.groups="drop") 
 vascCover$park <- factor(vascCover$park,levels = parks_ns)
 vascCover$aspect <- factor(vascCover$aspect,levels = c("N","S","E","W"))
-
-# 
-# ggplot(vascCover,aes(x=meanCover,y=totalCover,color=as.factor(year)))+
-#   geom_abline(slope=1)+
-#   geom_point()+
-#   facet_wrap(~park+year)
-#
 
 allcover.wide = NULL
 summits = unique(vascCover$summit)
@@ -44,11 +35,13 @@ for(s in summits){
     
     tmp2 = filter(tmp1,year==summit.yrs[i]) %>% 
       rename(startyear = year,
-             start.plantCover=totalCover)
+             start.plantCover=totalCover,
+             start.meanCover=meanCover)
     
     tmp3 = filter(tmp1,year==summit.yrs[i+1])%>% 
       rename(endyear = year,
-             end.plantCover=totalCover)
+             end.plantCover=totalCover,
+             end.meanCover=meanCover)
     
     tmp.out = merge(tmp2,tmp3,all = T) %>% 
       mutate(transition = paste0(s,i))
@@ -62,20 +55,4 @@ allcover.wide = allcover.wide %>%
   mutate(change.cover = end.plantCover - start.plantCover) %>% 
   mutate(transNum=substr(transition,4,4))
 
-# write_csv(allcover.wide,paste0("InputData/byClaire/vascplantcover_",Sys.Date(),".csv"))
-write_csv(allcover.wide,paste0("InputData/byClaire/vascplantcover_final.csv"))
-
-ggplot(allcover.wide,aes(x=transNum,y=change.cover,color=change.cover>0))+
-  geom_hline(yintercept = 0,linetype=3)+
-  geom_point()+
-  scale_color_manual(values=c("red","forestgreen"))+
-  facet_grid(park~aspect,scales="free",switch = "y")+
-  theme_bw(base_size = 16)
-
-ggplot(allcover.wide,aes(x=transNum,y=change.cover,color=change.cover>0))+
-  geom_hline(yintercept = 0,linetype=3)+
-  geom_point()+
-  facet_grid(aspect~park,scales = "free",switch="y")+
-  theme_bw(base_size = 16)+
-  scale_color_manual(values=c("red","forestgreen"),labels=c("decreasing","increasing"))+
-  labs(x="transition",y="change in total plant cover",color="Direction of change")
+write_csv(allcover.wide,paste0("Data/IntermediateData/vascplantcover_final.csv"))

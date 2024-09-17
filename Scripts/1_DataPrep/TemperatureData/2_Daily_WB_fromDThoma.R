@@ -3,6 +3,8 @@
 ####### Water Balance code ##########
 
 library(WaterBalance) # Will need to access a zip file provided by D. Thoma to install this package
+library(geosphere)
+library(raster)
 library(lubridate)
 library(tidyverse)
 library(readxl)
@@ -13,7 +15,7 @@ library(readxl)
 rm(list=ls())
 
 ##### Read in prism data #####
-prism_files <- list.files("./InputData/climate/prism/", pattern = "1990.csv",full.names = T)
+prism_files <- list.files("./Data/climate/prism/", pattern = "1990.csv",full.names = T)
 
 Historical <- NULL
 
@@ -31,12 +33,12 @@ for(i in prism_files){
 }
 rm(prism_files,i)
 
-#Site characteristics 
-#sites = read.csv("C:/Users/adillon/Documents/RSS/CONG/WB/CONG_site_characteristics.csv") #CSV file containing properties for all sites
+# Site characteristics 
+# sites = read.csv("C:/Users/adillon/Documents/RSS/CONG/WB/CONG_site_characteristics.csv") #CSV file containing properties for all sites
 
 ### Read in David's site info csv
-siteinfo = read_csv("./InputData/siteInfo/summitcoordinates.csv") %>% select(summit,elev,startdate,enddate)
-wb_sites = read_xlsx("./InputData/climate/daymet/sites.xlsx") %>% 
+siteinfo = read_csv("./Data/siteInfo/summitcoordinates.csv") %>% select(summit,elev,startdate,enddate)
+wb_sites = read_xlsx("./Data/climate/daymet/sites.xlsx") %>% 
   mutate(park=str_sub(site,1,3),
          summit=str_sub(site,5,7),
          aspectDeg=aspect,
@@ -53,7 +55,7 @@ T.Base = 0
 Method = "Oudin"  #Oudin is default method for daily PRISM and MACA data (containing only Tmax, Tmin, and Date). 
 
 #Date format
-## DateFormat = "%m/%d/%Y"
+DateFormat = "%m/%d/%Y"
 
 ############################################################ END USER INPUTS ###################################################################
 
@@ -124,7 +126,7 @@ AllDailyWB<-list()
     rm(DailyWB)
   }
 WBData<-do.call(rbind,AllDailyWB)
-write_csv(WBData,"./InputData/byClaire/dailyWBdata.csv")
+write_csv(WBData,"./Data/IntermediateData/dailyWBdata.csv")
 ######################################################### END WB VARIABLE CALCULATIONS ################################################################
 
 

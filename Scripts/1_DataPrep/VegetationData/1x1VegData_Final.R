@@ -162,7 +162,6 @@ for(s in summits){
     }
 
   # all_1x1veg = rbind(all_1x1veg,tmp.s.a.out)
-
 }
 
 # Write output data set that includes meaningful zeros
