@@ -1,7 +1,4 @@
 #### Compile soil temperature data then find and visualize gaps in the data ####
-#### Claire Powers ####
-#### Created 11/11/2021 ####
-
 rm(list=ls())
 
 library(tidyverse)

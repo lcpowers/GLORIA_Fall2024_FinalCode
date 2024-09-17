@@ -1,5 +1,3 @@
-#### Claire's version of the Daily WB model ####
-
 ####### Water Balance code ##########
 
 library(WaterBalance) # Will need to access a zip file provided by D. Thoma to install this package

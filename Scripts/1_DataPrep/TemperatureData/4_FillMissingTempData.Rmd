@@ -1,15 +1,8 @@
----
-title: "Climate data interpolation"
-author: "Claire Powers"
-date: "1/23/2022"
-output: html_document
----
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Clear env
 ```{r clearenv}
 rm(list=ls())
 ```

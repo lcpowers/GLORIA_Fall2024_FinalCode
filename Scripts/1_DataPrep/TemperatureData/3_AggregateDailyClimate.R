@@ -1,31 +1,8 @@
----
-title: "Data prep for soil T interpolation models"
-author: "Claire Powers"
-date: "2/5/2022"
-output: html_document
----
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-This script prepares data for the models that fill in missing temperature data with linear and binomial models. 
-
-Clear environment
-```{r clearenv}
-rm(list=ls())
-```
-
-Packages
-```{r packages}
 library(tidyverse)
 library(lubridate)
 library(zoo)
-options(scipen = 999)
-```
 
-Raw soil T and PRISM data
-```{r rawdata}
+##### Raw soil T and PRISM data #####
 # Read in raw soil T data and remove first column
 rawclimate <- read_csv("./Data/IntermediateData/rawTemp_all.csv") %>% filter(aspect %in% c("N","S","E","W"))
 
@@ -34,25 +11,23 @@ prism_files <- list.files("./Data/climate/prism/", pattern = ".csv",full.names =
 prism <- NULL
 
 for(i in prism_files){
-
+  
   summiti <- str_sub(string = basename(i),start = 1,end = 3)
   df <- read_csv(i,skip=10) %>%
     mutate(summit=summiti) %>%
     dplyr::select(summit,date=Date,ppt="ppt (mm)",
-           tmean="tmean (degrees C)",tmax="tmax (degrees C)",tmin="tmin (degrees C)") %>%
+                  tmean="tmean (degrees C)",tmax="tmax (degrees C)",tmin="tmin (degrees C)") %>%
     mutate(trange=tmax-tmin)
   
   prism <- rbind(prism,df)
-
+  
   rm(df,i,summiti)
 }
 
 rm(prism_files)
-```
 
-WBM data
-```{r daymet}
 
+##### WBM data #####
 # Get unique park and aspect codes
 aspects <- unique(rawclimate$aspect)
 parks <- unique(rawclimate$park[rawclimate$park!="PEC"])
@@ -60,11 +35,8 @@ parks <- unique(rawclimate$park[rawclimate$park!="PEC"])
 # Initiate WB Model data frame
 wbm_data <- read_csv("Data/IntermediateData/dailyWBdata.csv")
 
-```
 
-1. Read in compiled raw climate data (Includes raw data for all parks)
-```{r agg_rawsoilT}
-
+##### Read in compiled raw climate data (Includes raw data for all parks) #####
 ###### This generates new daily data. Commented out unless need to re-do for some reason #######
 # rawclimate$park <- as.factor(rawclimate$park)
 # rawclimate$summit <- as.factor(rawclimate$summit)
@@ -135,8 +107,7 @@ wbm_data <- read_csv("Data/IntermediateData/dailyWBdata.csv")
 # rm(grwszndates)
 # 
 # write_csv(dailyT,paste0("./Data/IntermediateData/allparks_dailysoilTs_",Sys.Date(),".csv"))
-# # Nov 1 2022 was last run of this
-###### This generates new daily data. Commented out unless need to re-do for some reason #######
+#This generates new daily data. Commented out unless need to re-do for some reason 
 
 # remember to change to most recent data if needed. Current most recent data is Nov 1
 dailyT <- read_csv("./Data/IntermediateData/dailyT_unfilled.csv")
@@ -147,12 +118,11 @@ YNP <- filter(dailyT,park=="YNP") # 52547 rows
 GSD <- filter(dailyT,park=="GSD") # 61413 rows
 GNP <- filter(dailyT,park=="GNP"&aspect!="HSP"&!aspect%in%c("NW","SW","SE")) # 72946 rows (77278 rows with NW, SW, SE) (83821 rows with aspect=="HSP")
 PEC <- filter(dailyT,park=="PEC")
-```
 
-2. Create df/csv to use in models that predict missing mean t values
-```{r tmean_data}
 
+##### Create df/csv to use in models that predict missing mean t values #####
 # Create data.frames for each pack which will be used to interpolated climate. Columns should be park, summit, date, then temperature for each park-summit combo, and prism temps
+
 parks <- c("GSD","RMN","YNP","GNP") # No pecos because no missing T data @ pecos
 
 for(parki in parks){
@@ -180,7 +150,7 @@ for(parki in parks){
   # Create a DOY column
   parkdf$doy = yday(parkdf$date)
   parkdf$doysq = parkdf$doy^2
-
+  
   # give df unique name
   assign(paste0(parki,"_allT"),parkdf)
   
@@ -190,6 +160,3 @@ for(parki in parks){
   rm(parkdf,parkdfwide,parkiprism,prismwide, parki)
   
 }
-
-```
-
