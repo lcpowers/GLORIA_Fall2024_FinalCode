@@ -1,0 +1,380 @@
+---
+title: "Full main model selection process"
+author: "Claire Powers"
+date: '2023-03-08'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+####### Main model selection process #######
+
+# Steps:
+# 1) Fit models with all possible combinations of random effects (intercept and slope) using REML
+# 2) Compare random effects models with AICc 
+# 3) Refit model using selected random effects based on step 2, and use dredge on this model to select fixed effects. Fit with ML not REML
+# 4) Once fixed and random effects are selected, refit model with REML. 
+
+## Dan's steps from Zuur et al.
+1. Start with a model where the fixed component contains all explanatory variables and as many interactions as possible. This is called the beyond optimal model. If this is impractical, e.g. due to a large number of explanatory variables, interactions, or numerical problems, use a selection of explanatory variables that you think are most likely to contribute to the optimal model.
+
+2. Using the beyond optimal model, find the optimal structure of the random component. Because we have as many explanatory variables as possible in the fixed component, the random component (hopefully) does not contain any information that we would like to have in the fixed component. The problem is that comparing two models with nested random structures cannot be done with ML because the estimators for the variance terms are biased. Therefore, we must use REML estimators to compare these (nested) models. Obtaining valid p-values for such tests is another non-trivial issue due to something called testing on the boundary, which we will discuss later in this section. As well as using the (REML) likelihood ratio test, we can also use the AIC or BIC, but again we need to use REML. Using AIC or BIC does not avoid boundary problems.
+
+3. Once the optimal random structure has been found, it is time to find the optimal fixed structure. As mentioned above, we can either use the F-statistic or the t-statistic obtained with REML estimation or compare nested models. To compare models with nested fixed effects (but with the same random structure), ML estimation must be used and not REML. We discuss the details of these tests later in this chapter.
+
+4. Present the final model using REML estimation
+
+Steps:
+1. Random effects with clim PC1/2
+2. Dredge that model
+3. Take that simple model, remove random slopes and find best climate variables
+4. With the best climate variables, revisit random slopes letting all combos of best clim variables be random slopes
+
+## Packages and data
+```{r start}
+rm(list=ls())
+
+### Packages
+library(tidyverse)
+library(lme4)
+library(MuMIn)
+library(rje)
+library(parallel)
+library(forcats)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(performance)
+
+### Read in and clean data
+dats.orig = read_csv('./AnalysisData/specieslevel_analysisdata_final.csv')
+dats=dats.orig %>% 
+  drop_na(startcover,climPC1,climPC2,latmax1090,latmin1090,latmean1090,latmedian1090) %>% 
+  filter(abs(changecover)<=20) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
+  filter(startcover+endcover!=0) %>%  # remove cases where a species did not have start or end cover
+  mutate(parksummit = paste(park,summit,sep="."),
+         PSaspect = paste(park,summit,aspect,sep="."),
+         startcovcats = cut(startcover,breaks=c(-0.1,seq(0.1,40,5))))
+
+# Create another dataframe where numeric predictor variables are scaled
+dats.scaled = dats# Get names columns to standardize
+scale_cols = dats %>% select(startcover,climPC1,climPC2,sitelat,contains(c("1090",".tmean",".aet",".pet",".ppt",".snowdays",".gdd"))) %>% names()
+dats.scaled[scale_cols]=lapply(dats.scaled[scale_cols], function(x) scale(x))
+# not_all_na <- function(x) any(!is.na(x))
+rm(scale_cols)
+```
+
+
+1. Finding optimal random effect structure 
+```{r REstructure}
+
+# Random intercept candidate variables
+int_vars = c("PSaspect","transition","sciname")
+r_ints = powerSet(int_vars)
+
+# Random slope candidate variables
+slope_vars = c("latmean1090","climPC1","climPC2")
+r_slopes = powerSet(slope_vars) # all of these wrt sciname
+
+# Create dataframe to more easily see all combinations of random slopes and intercepts
+REcombos = expand.grid(intercepts = r_ints,slopes = r_slopes,stringsAsFactors = FALSE) %>% 
+  filter(intercepts!="character(0)"|slopes!="character(0)") %>%  # This a model that contains no random effects
+  filter(!(str_detect(intercepts,"sciname")&slopes!="character(0)")) %>% # Remove cases of explicit random intercept term for sciname where also random slopes wrt sciname
+  mutate(mod_string = NA,AICc=NA,condR2=NA,margR2=NA) # column to store model string
+
+###### Full fixed effects model before any winnowing of FE variables #######
+basemod = 'endcover~startcover*(latmean1090+I(latmean1090^2)) + (startcover+latmean1090+I(latmean1090^2)+perenneating+leaves+habit)*(climPC1+climPC2+sitelat)'
+
+# List to store model objects in
+for(i in 1:nrow(REcombos)){
+
+  # Pull random effects from REcombos
+  ints_i = unlist(REcombos$intercepts[i])
+  slopes_i = unlist(REcombos$slopes[i])
+
+  # Use if statements to build model strings with slope, intercept, or slope&intercept terms
+
+  ## Random int and slope terms ##
+  if( length(ints_i)>0 & length(slopes_i)>0 ){
+    # print("int and slopes")
+
+    int_terms = paste0("(1|",ints_i,")",collapse = "+")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    mod_i = paste(basemod,int_terms,slope_terms,sep = " + ")
+    rm(int_terms,slope_terms)
+  }
+
+  ## Random int terms only ##
+  if( length(ints_i)>0 & length(slopes_i)==0 ){
+      # print("int only")
+
+    int_terms = paste0("(1|",ints_i,")",collapse = "+")
+    mod_i = paste(basemod,int_terms,sep = "+")
+    rm(int_terms)
+  }
+
+  # random slope terms only
+  if( length(ints_i)==0 & length(slopes_i)>0 ){
+      # print("slope only")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    mod_i = paste(basemod,slope_terms,sep = "+")
+    rm(slope_terms)
+  }
+
+  ## Store model string in REcombos ##
+  REcombos$mod_string[i] = mod_i
+  # Fit model using REML (default but still explicit here)
+  mod_i_fitted = lmer(mod_i,na.action = "na.fail",data = dats.scaled,REML = TRUE)
+  # summary(mod_i_fitted)
+  REcombos$AICc[i] = AICc(mod_i_fitted)
+  REcombos$condR2[i] = r2(mod_i_fitted)[[1]]
+  REcombos$margR2[i] = r2(mod_i_fitted)[[2]]
+  
+  # Remove i variables to make sure they don't impact future iterations. This will generate some unimportant warnings about objects not found
+  rm(slopes_i,ints_i,mod_i,mod_i_fitted)
+
+}
+
+rm(r_ints,r_slopes,i,slope_vars,int_vars)
+
+REcombos$deltaAIC = REcombos$AICc-min(REcombos$AICc)
+write_csv(REcombos,"Results/RandomEffects/modSelectionTable.csv")
+```
+
+
+2. Finding optimal fixed structure with climate PCs 1 & 2 #####
+Refit best RE model using ML + dredge to find the most important fixed effects
+```{r FEstructure_refitwithML_thenDredge}
+
+# Get string of best model
+climPC.RE.mod = REcombos$mod_string[which.min(REcombos$AICc)]
+climPC.RE.mod 
+# "endcover~startcover*(latmean1090+I(latmean1090^2)) + (startcover+latmean1090+I(latmean1090^2)+perenneating+leaves+habit)*(climPC1+climPC2+sitelat) + (1|transition) + (climPC1+climPC2 | sciname)"
+
+# Refit using ML rather than REML
+climPC.RE.mod.MLfit = lmer(formula = climPC.RE.mod,na.action =  "na.fail",data = dats.scaled,REML = FALSE)
+climPC.RE.mod.MLfit
+starttime = Sys.time()
+
+# Dredge this model
+clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
+clust <- try(makeCluster(getOption("cl.cores", 4), type = clusterType))
+clusterEvalQ(clust, library(lme4))
+clusterExport(clust,"dats.scaled")
+
+climPC.RE.mod.dredge = dredge(climPC.RE.mod.MLfit,
+                        beta = c("none"),
+                        fixed = c('startcover',"climPC1","climPC2"), # Fixing clim PC1 and clim PC2 because they are random slope terms
+                        trace=2,
+                        subset = dc(latmean1090,I(latmean1090^2)),
+                        cluster = clust)
+
+stopCluster(clust)
+rm(clust)
+
+climPC.RE.mod.dredge.fltr = filter(climPC.RE.mod.dredge,delta<1)
+# write_csv(as.data.frame(climPC.RE.mod.dredge.fltr),"climPC dredge results.csv")
+# 
+# 
+#
+best.climPC.fe.mod = get.models(climPC.RE.mod.dredge.fltr,subset = 1)[[1]]
+best.climPC.fe.mod@call
+```
+
+
+3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
+```{r best.clim.vars}
+
+# Create climate variable variable groups
+val = c("min","max","mean")
+tmean.grp = append(paste0(val,".tmean"),NA)
+snow.gdd.grp = append(c(paste0(val,".gdd"),paste0(val,".snowdays")),NA)
+ppt.grp = append(paste0(val,".gs.ppt"),NA)
+cwd.grp =  append(c(paste0(val,".aet"),paste0(val,".pet"),paste0(val,".wy.ppt")),NA)
+rm(val)
+
+# to see number of combinations
+clim.combos.df = expand_grid(tmean.grp,snow.gdd.grp,ppt.grp,cwd.grp) %>% filter(rowSums(is.na(.))!=ncol(.))
+
+best.climPC.fe.mod = "endcover ~ startcover*(climPC1 + latmean1090 + I(latmean1090^2) + sitelat) + climPC2*perenneating + habit*climPC1 + habit*sitelat + (1 | transition) + (climPC1 + climPC2 | sciname)"
+best.climPC.mod = lmer(formula = best.climPC.fe.mod,na.action =  "na.fail",data = dats.scaled,REML = F)
+summary(best.climPC.mod)
+best.climPC.fe.mod.noRSs = "endcover ~ startcover*(climPC1 + latmean1090 + I(latmean1090^2) + sitelat) + climPC2*perenneating + habit*climPC1 + habit*sitelat + (1 | transition)"
+
+climVar.generic.mod = "endcover ~ startcover*(tmean.var + cwd.var + ppt.var + snow.gdd.var + latmean1090 + I(latmean1090^2) + sitelat) + (tmean.var + cwd.var + ppt.var + snow.gdd.var)*perenneating + habit*(tmean.var + cwd.var + ppt.var + snow.gdd.var) + habit*sitelat + (1 | transition)"
+
+# In each iteration, a single climate variable from each group is subbed in for the generic climate variables above (i.e., tmean.var is swapped out for mean.tmean). That model is then fit with ML (not REML) and the AIC value is stored in the output table for comparison once the loops are finished running
+
+# Store results
+clim.mod.AICs = NULL
+
+for(tmean.i in tmean.grp){ # tmean group loop
+  for(cwd.i in cwd.grp){ # snow gdd group loop
+    for(ppt.i in ppt.grp){ #ppt group loop
+      for(snow.gdd.i in snow.gdd.grp){ # cwd_group loop 
+        
+        # If all clim vals are NA skip to next loop
+        if(is.na(tmean.i)&is.na(cwd.i)&is.na(ppt.i)&is.na(snow.gdd.i)) next
+        
+        clim.mod.i = climVar.generic.mod
+        
+        # either remove tmean.var or replace with specific tmean variable name. Repeat the same process for all other clim variable groups
+        if(is.na(tmean.i)) {clim.mod.i = gsub(pattern = "tmean.var + ",replacement = "", x = clim.mod.i, fixed = T)
+        }else{clim.mod.i = gsub(pattern = "tmean.var",replacement = tmean.i,x = clim.mod.i)}
+        
+        if(is.na(cwd.i)) {clim.mod.i = gsub(pattern = "cwd.var + ",replacement = "", x = clim.mod.i, fixed = T)
+        }else{clim.mod.i = gsub(pattern = "cwd.var",replacement = cwd.i,x = clim.mod.i)}
+                
+        if(is.na(ppt.i)) {clim.mod.i = gsub(pattern = "ppt.var + ",replacement = "", x = clim.mod.i, fixed = T)
+        }else{clim.mod.i = gsub(pattern = "ppt.var",replacement = ppt.i,x = clim.mod.i)}
+        
+        if(is.na(snow.gdd.i)) {clim.mod.i = gsub(pattern = " + snow.gdd.var",replacement = "", x = clim.mod.i, fixed = T)
+        }else{clim.mod.i = gsub(pattern = "snow.gdd.var",replacement = snow.gdd.i,x = clim.mod.i)}
+        
+        out_df = data.frame(tmean.var = tmean.i,
+                    snow.gdd.var = snow.gdd.i,
+                    ppt.var = ppt.i,
+                    cwd.var = cwd.i,
+                    mod.str = clim.mod.i)
+        
+        # Fit in LMER
+        mod.fit.i = lmer(formula = clim.mod.i, data = dats.scaled, REML = FALSE, na.action = "na.fail")
+
+        out_df$AICc=AICc(mod.fit.i)
+        out_df$condR2 = r2(mod.fit.i)[[1]]
+        out_df$margR2 = r.squaredGLMM(mod.fit.i)[[2]]
+
+        clim.mod.AICs = rbind(clim.mod.AICs,out_df)
+        rm(out_df,clim.mod.i)
+        # rm(mod.fit.i,clim.mod.i)
+      }
+    }
+  }
+}
+
+clim.mod.AICs$deltaAIC = clim.mod.AICs$AICc - min(clim.mod.AICs$AICc)
+best.ExplClimVar.mod.str <- clim.mod.AICs$mod.str[clim.mod.AICs$deltaAIC==0]
+best.ExplClimVar.mod.str
+```
+
+
+4. With the best climate variables, revisit random slopes letting all combos of best clim variables be random slopes
+```{r explClimVars.REs}
+# Random intercept candidate variables
+int_vars = c("PSaspect","sciname","transition")
+r_ints = powerSet(int_vars)
+
+# Random slope candidate variables
+slope_vars = c("max.tmean","min.wy.ppt","min.gs.ppt","min.gdd")
+r_slopes = powerSet(slope_vars) # all of these wrt sciname
+
+# Create dataframe to more easily see all combinations of random slopes and intercepts
+REcombos = expand.grid(intercepts = r_ints,slopes = r_slopes,stringsAsFactors = FALSE) %>% 
+  filter(intercepts!="character(0)"|slopes!="character(0)") %>%  # This a model that contains no random effects
+  filter(!(str_detect(intercepts,"sciname")&slopes!="character(0)")) %>% # Remove cases of explicit random intercept term for sciname where also random slopes wrt sciname
+  mutate(mod_string = NA,AICc=NA,condR2=NA,margR2=NA) # column to store model string
+rm(int_vars,slope_vars,r_ints,r_slopes)
+
+###### Full fixed effects model before any winnowing of FE variables #######
+basemod = best.ExplClimVar.mod.str = "endcover ~ startcover*(max.tmean + min.wy.ppt + min.gs.ppt + min.gdd + latmean1090 + I(latmean1090^2) + sitelat) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd)*perenneating + habit*sitelat + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd)*habit"
+
+# List to store model objects in
+for(i in 1:nrow(REcombos)){
+
+  # Pull random effects from REcombos
+  ints_i = unlist(REcombos$intercepts[i])
+  slopes_i = unlist(REcombos$slopes[i])
+
+  # Use if statements to build model strings with slope, intercept, or slope&intercept terms
+
+  ## Random int and slope terms ##
+  if( length(ints_i)>0 & length(slopes_i)>0 ){
+    # print("int and slopes")
+
+    # int_terms = paste0("(1|",ints_i,")",collapse = "+")
+    # slope_terms = paste0("(",slopes_i,"|sciname)",collapse="+")
+    # mod_i = paste(basemod,int_terms,slope_terms,sep = "+")
+
+    int_terms = paste0("(1|",ints_i,")",collapse = "+")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    mod_i = paste(basemod,int_terms,slope_terms,sep = " + ")
+    rm(int_terms,slope_terms)
+    
+  }
+
+  ## Random int terms only ##
+  if( length(ints_i)>0 & length(slopes_i)==0 ){
+      # print("int only")
+
+    # int_terms = paste0("(1|",ints_i,")",collapse = "+")
+    # mod_i = paste(basemod,int_terms,sep = "+")
+
+    int_terms = paste0("(1|",ints_i,")",collapse = "+")
+    mod_i = paste(basemod,int_terms,sep = "+")
+    rm(int_terms)
+    
+  }
+
+  # random slope terms only
+  if( length(ints_i)==0 & length(slopes_i)>0 ){
+    #   # print("slope only")
+    # slope_terms = paste0("(",slopes_i," || sciname)",collapse="+")
+    # mod_i = paste(basemod,slope_terms,sep = "+")
+    
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    mod_i = paste(basemod,slope_terms,sep = "+")
+    rm(slope_terms)
+
+  }
+  
+  ## Store model string in REcombos ##
+  REcombos$mod_string[i] = mod_i
+  # Fit model using REML (default but still explicit here)
+  mod_i_fitted = lmer(mod_i,na.action = "na.fail",data = dats.scaled,REML = TRUE)
+  REcombos$AICc[i] = AICc(mod_i_fitted)
+  REcombos$margR2[i] = r2_nakagawa(mod_i_fitted)[[2]]
+  REcombos$condR2[i] = r2(mod_i_fitted)[[1]]
+  
+  # Remove i variables to make sure they don't impact future iterations. This will generate some unimportant warnings about objects not found
+  rm(mod_i,mod_i_fitted)
+
+}
+
+REcombos$deltaAIC = REcombos$AICc - min(REcombos$AICc)
+
+best.explClimVar.RE.mod = REcombos$mod_string[which.min(REcombos$AICc)]
+best.explClimVar.RE.mod
+```
+
+
+5. Now dredge the model with the RE structure from above. RE clim vars must be fixed
+```{r best_clim_mod_dredge}
+best.explClim.RE.mod = "endcover ~ startcover*(max.tmean + min.wy.ppt + min.gs.ppt + min.gdd + latmean1090 + I(latmean1090^2) + sitelat) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd)*perenneating + habit*sitelat + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd)*habit + (1 | transition) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd | sciname)"
+
+# Refit using ML rather than REML
+best.explClimVar.RE.mod.ML = lmer(formula = best.explClim.RE.mod ,na.action =  "na.fail",data = dats.scaled, REML = FALSE)
+
+# Dredge this model
+clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
+clust <- try(makeCluster(getOption("cl.cores", 40), type = clusterType))
+clusterEvalQ(clust, library(lme4))
+clusterExport(clust,"dats.scaled")
+
+best.explClimVar.RE.mod.dredge = dredge(best.explClimVar.RE.mod.ML,
+                        beta = c("none"),
+                        fixed = c('startcover','min.gs.ppt','min.gdd',"min.wy.ppt","max.tmean"),
+                        trace=2,
+                        subset = dc(latmean1090,I(latmean1090^2)),
+                        cluster = clust)
+
+stopCluster(clust)
+rm(clust)
+
+explClimVar.RE.mod.dredge.fltr = filter(best.explClimVar.RE.mod.dredge,delta<1)
+best.explClimVar.mod = get.models(explClimVar.RE.mod.dredge.fltr,subset = 2)[[1]]
+best.explClimVar.mod@call
+```
+
+
