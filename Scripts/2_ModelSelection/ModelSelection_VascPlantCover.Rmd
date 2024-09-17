@@ -1,0 +1,190 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Packages and data
+```{r start}
+rm(list=ls())
+
+### Packages
+library(tidyverse)
+library(lme4)
+library(MuMIn)
+library(rje)
+library(performance)
+library(sjPlot)
+library(corrplot)
+
+### Read in and clean data
+
+dats.orig=read_csv('Data/AnalysisData/vascplantcover_final.csv') %>% 
+  filter(!is.na(start.plantCover)) %>% 
+  mutate(PSaspect=paste(park,summit,aspect,sep="."),
+         pchangecover = (change.cover/start.plantCover)*100) %>% 
+  relocate(c(change.cover,pchangecover),.after = end.plantCover) %>% 
+    arrange(-pchangecover) %>% 
+  filter(pchangecover<100) %>% 
+  mutate(park = factor(park,levels=c("GNP","YNP","RMN","GSD","PEC")),
+         tr.num = str_sub(transition,4,4))
+
+dats = dats.orig %>% 
+  select(-contains(c("rock","scree"))) %>% 
+  na.omit()
+
+### Create another dataframe where numeric predictor variables are scaled ###
+dats.scaled = dats # Get names columns to standardize
+scale_cols = dats %>% select(start.plantCover,climPC1,climPC2,sitelat,contains(c(".tmean",".aet",".pet",".ppt",".snowdays",".gdd"))) %>% names()
+dats.scaled[scale_cols]=lapply(dats.scaled[scale_cols], function(x) scale(x))
+
+rm(scale_cols)
+```
+
+Vascular plant cover models have very few predictor variables, so model selection is much simpler
+- Fixed effects are start cover, climate variables, site latitude, and park -- here
+- Random effect options are PSaspect and transition
+```{r REstructure}
+
+### Compare RE options with a fully saturated FE structure
+
+# PS aspect random slop
+mod1 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|PSaspect),
+                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+# transition as random slope
+mod2 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|transition),
+                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+# both as random slopes
+mod3 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|PSaspect) + (1|transition),
+                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+## Same as above but without park ##
+mod4 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + (1|PSaspect),
+                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+# transition as random slope
+mod5 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + (1|transition),
+                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+# both as random slopes
+mod6 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + (1|PSaspect) + (1|transition),
+                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+# Compare AICc values
+mod.compare = AICc(mod1,mod2,mod3,mod4,mod5,mod6) %>% mutate(delta = AICc-min(AICc)) %>% arrange(delta)
+
+##### Mod 2 -- transition as a random slope -- is best. Now refit with ML and dredge
+mod2.ML = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|transition),
+                  na.action = "na.fail",data = dats.scaled,REML = F)
+
+## Dredge the model that was refit with maximum likelihood
+mod2.dredge = dredge(mod2.ML,beta = c("none"),fixed = c('start.plantCover'),trace=2)
+#####
+
+### The best model here does not include and climPC variables. Do we want to just fix them? The second best model does include clim PC2
+
+##### Pull best model from dredge #####
+best.PC.mod = get.models(mod2.dredge,subset = 1)[[1]]
+best.PC.mod@call
+
+# end.plantCover ~ start.plantCover + climPC1 + climPC1:start.plantCover + park + (1 | transition) 
+# rm(as.vector(rownames(mod.compare)[2:7]))
+rm(mod1,mod2,mod3,mod4,mod5,mod6,mod.compare,mod2.dredge,mod2.ML)
+```
+
+
+Sub in climate vars for climPC1
+
+3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
+```{r best.clim.vars, warning=FALSE}
+
+# Create climate variable variable groups
+val = c("min","max","mean")
+tmean.grp = append(paste0(val,".tmean"),NA)
+snow.gdd.grp = append(c(paste0(val,".gdd"),paste0(val,".snowdays")),NA)
+ppt.grp = append(paste0(val,".gs.ppt"),NA)
+cwd.grp =  append(c(paste0(val,".aet"),paste0(val,".pet"),paste0(val,".wy.ppt")),NA)
+rm(val)
+
+# to see number of combinations
+clim.combos.df = expand_grid(tmean.grp,snow.gdd.grp,ppt.grp,cwd.grp) %>% filter(rowSums(is.na(.))!=ncol(.))
+
+# Use the best global model from above to sub in explicit climate variables
+# mod2 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|transition),
+#                   na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+climVar.generic.mod = "end.plantCover~start.plantCover*(tmean.var + cwd.var + ppt.var + snow.gdd.var + sitelat) + park + (1|transition)"
+
+# In each iteration, a single climate variable from each group is subbed in for the generic climate variables above (i.e., tmean.var is swapped out for mean.tmean). That model is then fit with ML (not REML) and the AIC value is stored in the output table for comparison once the loops are finished running
+
+# Store results
+clim.mod.AICs = NULL
+
+for(i in 1:nrow(clim.combos.df)){
+  
+  tmean.i = clim.combos.df$tmean.grp[i]
+  cwd.i = clim.combos.df$cwd.grp[i]
+  ppt.i = clim.combos.df$ppt.grp[i]
+  snow.gdd.i = clim.combos.df$snow.gdd.grp[i]
+
+  # If all clim vals are NA skip to next loop
+  if(is.na(tmean.i)&is.na(cwd.i)&is.na(ppt.i)&is.na(snow.gdd.i)) next
+  
+  clim.mod.i = climVar.generic.mod
+  
+  # either remove tmean.var or replace with specific tmean variable name. Repeat the same process for all other clim variable groups
+  if(is.na(tmean.i)) {clim.mod.i = gsub(pattern = "tmean.var + ",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "tmean.var",replacement = tmean.i,x = clim.mod.i)}
+  
+  if(is.na(cwd.i)) {clim.mod.i = gsub(pattern = "cwd.var + ",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "cwd.var",replacement = cwd.i,x = clim.mod.i)}
+          
+  if(is.na(ppt.i)) {clim.mod.i = gsub(pattern = "ppt.var + ",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "ppt.var",replacement = ppt.i,x = clim.mod.i)}
+  
+  if(is.na(snow.gdd.i)) {clim.mod.i = gsub(pattern = " + snow.gdd.var",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "snow.gdd.var",replacement = snow.gdd.i,x = clim.mod.i)}
+  
+  out_df = data.frame(tmean.var = tmean.i,
+              snow.gdd.var = snow.gdd.i,
+              ppt.var = ppt.i,
+              cwd.var = cwd.i,
+              mod.str = clim.mod.i)
+  
+  # Fit in LMER
+  mod.fit.i = lmer(formula = clim.mod.i, data = dats.scaled, REML = FALSE, na.action = "na.fail")
+
+  out_df$AICc=AICc(mod.fit.i)
+  out_df$condR2 = r2(mod.fit.i)[[1]]
+  out_df$margR2 = r.squaredGLMM(mod.fit.i)[[2]]
+
+  clim.mod.AICs = rbind(clim.mod.AICs,out_df)
+  rm(out_df,clim.mod.i)
+
+}
+
+## add a delta AIC column
+clim.mod.AICs$delta = clim.mod.AICs$AICc-min(clim.mod.AICs$AICc)
+
+## Pull out model string for model with lowest AIC
+best.ExplClimVar.mod.str <- clim.mod.AICs$mod.str[clim.mod.AICs$delta==0]
+
+## Fit that model again and put in global env
+best.ExplClimVar.mod = lmer(best.ExplClimVar.mod.str, data = dats.scaled, REML = FALSE, na.action = "na.fail")
+
+## Dredge that model
+dredge.climVar.mod = dredge(best.ExplClimVar.mod,beta = c("none"),fixed = c('start.plantCover'),trace=2)
+
+## Pull out best model from dredge and refit with REML for parameter estimates
+best.climVar.mod = get.models(dredge.climVar.mod,subset=1)[[1]]
+best.climVar.mod@call
+
+final.climVar.mod = lmer(formula = end.plantCover ~ max.snowdays + mean.gs.ppt + min.wy.ppt + park + start.plantCover + max.snowdays:start.plantCover + mean.gs.ppt:start.plantCover + min.wy.ppt:start.plantCover + (1 | transition), data = dats.scaled, REML = FALSE, na.action = "na.fail")
+summary(final.climVar.mod)
+
+```
+
+
+
