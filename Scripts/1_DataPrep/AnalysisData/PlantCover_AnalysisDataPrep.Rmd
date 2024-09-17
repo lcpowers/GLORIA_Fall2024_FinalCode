@@ -22,26 +22,20 @@ library(tidyverse)
 library(reshape2)
 library(lubridate)
 library(ggfortify)
-# library(ggbiplot)
-
-not_all_na <- function(x) any(!is.na(x))
-not_any_na <- function(x) all(!is.na(x))
-all_zero <- function(x) all(x==0)
 ```
 
 
 # Read-in data
 ```{r data}
-siteinfo = read_csv("./InputData/siteInfo/summitcoordinates.csv") %>% 
+siteinfo = read_csv("./Data/siteInfo/summitcoordinates.csv") %>% 
   dplyr::select(park,summit,sitelat=lat,sitelong=long,siteelev=elev)
 parks_ns = c("GNP","YNP","RMN","GSD","PEC")
 
-vascplantcover = read_csv(paste0("InputData/byClaire/vascplantcover_final.csv"))
+vascplantcover = read_csv(paste0("Data/IntermediateData/vascplantcover_final.csv"))
 
 # water balance data
-wbdata = read_csv("./InputData/byClaire/dailyWBdata.csv")
+wbdata = read_csv("./Data/IntermediateData/dailyWBdata.csv")
 
-# Growing season dates (month-day)
 # Growing season dates (month-day)
 t.gs.start.date = "07-01"
 t.grwszn = seq(as.Date(t.gs.start.date,format='%m-%d'),as.Date("09-25",format='%m-%d'),by="day")
@@ -58,7 +52,7 @@ ppt.grwszn = format(ppt.grwszn,"%m-%d")
 ```{r GNP}
 
 gnp_veg <- filter(vascplantcover, park=="GNP")
-gnp_clim <- read_csv("./InputData/byClaire/InterpDailyT/GNP_meandailyT.csv") 
+gnp_clim <- read_csv("./Data/IntermediateData/FilledTempData/GNP_meandailyT.csv") 
 summits <- unique(gnp_veg$summit)
 
 gnp_Ts <- NULL
@@ -109,9 +103,8 @@ for(s in summits){
 # Rocky Mountain National Park
 - 2010 -> 2014 -> 2019
 ```{r RMN}
-
 rmn_veg <- filter(vascplantcover, park=="RMN")
-rmn_clim <- read_csv("./InputData/byClaire/InterpDailyT/RMN_meandailyT.csv") 
+rmn_clim <- read_csv("./Data/IntermediateData/FilledTempData/RMN_meandailyT.csv") 
 summits <- unique(rmn_veg$summit)
 
 rmn_Ts <- NULL
@@ -137,7 +130,7 @@ for(s in summits){
       filter(md%in%t.grwszn & year<=endyr&year>=startyr & summit==s) %>% 
       group_by(year,summit,aspect) %>% 
       # Find mean growing season temperature by year
-      dplyr::summarise(tmean=round(mean(value,na.rm=T),3),.groups = "drop") %>% 
+      dplyr::summarise(tmean=round(mean(tmean,na.rm=T),3),.groups = "drop") %>% 
       ungroup() %>% 
       group_by(summit,aspect) %>% 
       dplyr::summarise(min.tmean=min(tmean), # minimum mean growing season temperature
@@ -163,7 +156,7 @@ for(s in summits){
 - 2011 -> 2016
 ```{r YNP}
 ynp_veg <- filter(vascplantcover, park=="YNP")
-ynp_clim <- read_csv("./InputData/byClaire/InterpDailyT/YNP_meandailyT.csv") 
+ynp_clim <- read_csv("./Data/IntermediateData/FilledTempData/YNP_meandailyT.csv") 
 summits <- unique(ynp_veg$summit)
 
 ynp_Ts <- NULL
@@ -215,7 +208,7 @@ for(s in summits){
 - 2009 -> 2015 -> 2020
 ```{r GSD}
 gsd_veg <- filter(vascplantcover, park=="GSD")
-gsd_clim <- read_csv("./InputData/byClaire/InterpDailyT/GSD_meandailyT.csv") 
+gsd_clim <- read_csv("./Data/IntermediateData/FilledTempData/GSD_meandailyT.csv") 
 summits <- unique(gsd_veg$summit)
 
 gsd_Ts <- NULL
@@ -268,7 +261,7 @@ for(s in summits){
 ```{r PEC}
 pec_veg <- filter(vascplantcover, park=="PEC")
 
-pec_clim <- read_csv("./InputData/byClaire/allparks_dailyT_2022-11-01.csv") %>% 
+pec_clim <- read_csv("./Data/IntermediateData/allparks_dailyT_final.csv") %>% 
   filter(park=="PEC") %>% 
   mutate(year=year(date), md = as.character(format(date,"%m-%d"))) %>% 
   filter(md%in%t.grwszn) 
@@ -330,214 +323,14 @@ all_parks <- rbind(gnp_Ts,gsd_Ts,rmn_Ts,ynp_Ts,pec_Ts) %>%
 
 ## Now read in species-level anaylsis data frame, keep the WB model data and PCA data, bind to this dataframe
 ```{r WBandPCAcols}
-spp_df = read_csv("./AnalysisData/analysisdata_final.csv") %>% 
+spp_df = read_csv("Data/AnalysisData/specieslevel_analysisdata_final.csv") %>% 
   select(park,summit,aspect,startyear,climPC1,climPC2,contains(c("gdd","snowdays","aet","pet",".gs.",".wy."))) %>% 
   unique()
 
 all_parks_WBdata = merge(all_parks,spp_df,by=c("park","summit","aspect","startyear"))
 
-write_csv(all_parks_WBdata,"./AnalysisData/vascplantcover_final.csv")
-
+write_csv(all_parks_WBdata,"Data/AnalysisData/vascplantcover_final.csv")
 ```
 
-
-# Now bring in WB model data
-```{r snow_wbmdata}
-
-summits <- unique(all_parks$summit)
-start.h20y = "-10-01"
-end.h20y = "-09-30"
-
-snowdays <- NULL
-h20yppt <- NULL
-for(s in summits){
-  
-  df = filter(all_parks,summit==s)
-  years = unique(c(df$startyear,df$endyear))
-  transitions = length(years)-1
-  
-  for(i in 1:transitions){ # start snow days for transition i loop
-
-      # Filter WB data for current transition time frame
-      tmp = filter(wbdata,str_detect(ID,s)) %>%
-          separate(ID,into = c("summit","aspect")) %>%
-          mutate(year = year(date),
-                 month=month(date)) %>%
-        filter(year>=(years[i]-1) & year <= years[i+1])
-      tmp$month = as.numeric(tmp$month)
-
-      ## Fill in snow year column -- used as grouping variable in next section
-      tmp$snowyr <- NA
-      yrs = unique(tmp$year)
-
-      for(yr in 1:(length(yrs)-1)){ # snow years loop
-        # start of water year
-        start <- as.Date(paste0(yrs[yr],start.h20y))
-
-        # end of water uear
-        end <- as.Date(paste0(yrs[yr+1],end.h20y))
-
-        # Fill in snow year variable
-        tmp$snowyr[tmp$date>=start&tmp$date<=end]= paste0("snowyr",yr)
-      } # end snow years loop
-
-      tmp <- tmp %>% filter(!is.na(snowyr))
-
-      snowdaysi <- tmp %>%
-        mutate(park = unique(df$park)) %>%
-        group_by(park,summit,aspect,snowyr) %>%
-          dplyr::summarise(snowdays = sum(PACK>0),
-                           .groups = "drop") %>%
-        group_by(park,summit,aspect) %>%
-        dplyr::summarise(min.snowdays=min(snowdays),
-                         mean.snowdays=mean(snowdays),
-                         max.snowdays=max(snowdays),
-                         .groups = "drop") %>%
-        mutate(transition=paste0(s,i))
-
-     snowdays <- rbind(snowdays,snowdaysi)
-     rm(snowdaysi)
-     
-     
-     # Repeat for precip
-     h20yr.ppti <- tmp %>% 
-      mutate(park = unique(siteinfo$park[siteinfo$summit==s])) %>% # add park var
-      group_by(park,summit,aspect,snowyr) %>% # Group by snow/water year
-      dplyr::summarise(wy.ppt = sum(ppt),.groups = "drop") %>% # get total ppt in water year
-      group_by(park,summit,aspect) %>%
-      dplyr::summarise(min.wy.ppt=min(wy.ppt),
-                       mean.wy.ppt=mean(wy.ppt),
-                       max.wy.ppt=max(wy.ppt),
-                         .groups = "drop") %>%
-     mutate(transition=paste0(s,i))
-     h20yppt <- rbind(h20yppt,h20yr.ppti)
-     rm(h20yr.ppti)
-     
-  } # end snow days for transition i loop
-}
-
-all_parks_snow <- merge(all_parks,snowdays,by=c("park","summit","aspect","transition")) %>% 
-  merge(.,h20yppt,by=c("park","summit","aspect","transition"))
-```
-
-
-# WB model grw szn data
-```{r water_wbmdata}
-
-wbm_grwszn <- NULL
-
-for(s in summits){
-  
-  df = filter(all_parks,summit==s)
-  years = unique(c(df$startyear,df$endyear))
-  transitions = length(years)-1
-  
-  for(i in 1:transitions){
-    
-    tmp = filter(wbdata,str_detect(ID,s)) %>%
-      separate(ID,into = c("summit","aspect")) %>%
-      mutate(year = year(date),moday = format(date,"%m-%d")) %>% 
-      filter(year>=years[i] & year <= years[i+1])
-    
-    # soil water availabilty metrics
-    tmp_cwd = tmp %>% 
-      filter(moday%in%ppt.grwszn) %>% 
-     group_by(park,summit,aspect,year) %>% 
-      dplyr::summarise(pet = mean(PET),
-                       aet = mean(AET),
-                       cwd = pet-aet,
-                       ppt = sum(ppt,na.rm=T),
-                       .groups = "drop") %>% 
-      group_by(park,summit,aspect) %>% 
-      # Then find min, max, and mean of the annual values
-      dplyr::summarise(min.pet=min(pet),mean.pet=mean(pet),max.pet=max(pet),
-                       min.aet=min(aet),mean.aet=mean(aet),max.aet=max(aet),
-                       min.cwd=min(cwd),mean.cwd=mean(cwd),max.cwd=max(cwd),
-                       min.gs.ppt=min(ppt),mean.gs.ppt=mean(ppt),max.gs.ppt=max(ppt),
-                       .groups = "drop") 
-    
-    # GDD metrics
-    tmp_gdd <- tmp %>% 
-      group_by(park,summit,aspect,year) %>% 
-      dplyr::summarise(gdd = sum(GDD>0),
-                       .groups = "drop") %>% 
-      group_by(park,summit,aspect) %>% 
-      dplyr::summarise(min.gdd=min(gdd),mean.gdd=mean(gdd),max.gdd=max(gdd),
-                       .groups = "drop")
-    
-    tmp_grwszn <- merge(tmp_cwd,tmp_gdd)%>% 
-      mutate(transition=paste0(s,i))
-  
-    wbm_grwszn <- rbind(wbm_grwszn,tmp_grwszn)
-    rm(tmp,tmp_cwd,tmp_gdd,tmp_grwszn)    
-  }
-}
-
-all_parks_snow_water <- merge(all_parks_snow,wbm_grwszn,by=c("park","summit","aspect","transition"),all.x = T)
-
-```
-
-
-# add in PC1 and PC2 based on climate vars
-```{r pc12}
-# partial names of climate variables in the dataset
-climvars = c("tmean","snow","gdd","ppt","pet","aet")
-
-# Get df of just climate vars
-climdf = all_parks_snow_water %>% 
-  select(park,summit,aspect,transition,contains(climvars),-starts_with("lat")) %>% 
-  na.omit() %>% 
-  unique() 
-
-# Look at corr plot of climate vars
-climcor = cor(climdf[,5:ncol(climdf)])
-corrplot::corrplot(climcor,diag=F,tl.cex=1.5)
-
-# PCA on climate cols of climdf
-climpca = prcomp(climdf[,5:ncol(climdf)],scale. = T)
-# summary(climpca)
-
-# # Plot PCA
-autoplot(climpca,data=climdf,
-         loadings=TRUE,loadings.colour="grey60",
-         loadings.label=T,loadings.label.size=4)+
-  theme_bw(base_size = 14)
-
-climdf$aspect = factor(climdf$aspect,levels=c("N","S","E","W"))
-
-### Look at PCs 1&2 vs climate vars
-pca_df = cbind(climdf,climpca$x)
-plot_cols = names(pca_df[,5:22])
-
-# for(coli in plot_cols){
-#   
-#   pc1 = ggplot(pca_df,aes(x=PC1,y=eval(as.name(coli))))+
-#     geom_line()+
-#     #geom_smooth(method="lm")+
-#     stat_poly_line()+
-#     stat_poly_eq(label.x = "middle")+
-#     labs(y=coli)+
-#     theme_bw()
-#   
-#   pc2 = ggplot(pca_df,aes(x=PC2,y=eval(as.name(coli))))+
-#     geom_line()+
-#     stat_poly_line()+
-#     stat_poly_eq(label.x = "middle")+
-#     labs(y=coli)+
-#     theme_bw()
-#   
-#   print(plot_grid(pc1,pc2))
-#   
-# }
-
-#ggsave("pcaplot.png",w=10,h=5)
-
-pcdat = as.data.frame(climpca$x) %>% select(climPC1=PC1,climPC2=PC2) %>% 
-  cbind(climdf[,1:4],.)
-
-all_parks_snow_water_pca = merge(all_parks_snow_water,pcdat,by=c("park","summit","aspect","transition"),all.x=T)
-
-write_csv(all_parks_snow_water_pca,"./AnalysisData/vascplantcover_final.csv")
-```
 
 

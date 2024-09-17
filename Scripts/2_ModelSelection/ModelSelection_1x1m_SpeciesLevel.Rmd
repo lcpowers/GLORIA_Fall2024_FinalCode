@@ -1,30 +1,7 @@
----
-title: "Full main model selection process"
-author: "Claire Powers"
-date: '2023-03-08'
-output: html_document
----
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-
-####### Main model selection process #######
-
-# Steps:
-# 1) Fit models with all possible combinations of random effects (intercept and slope) using REML
-# 2) Compare random effects models with AICc 
-# 3) Refit model using selected random effects based on step 2, and use dredge on this model to select fixed effects. Fit with ML not REML
-# 4) Once fixed and random effects are selected, refit model with REML. 
-
-## Dan's steps from Zuur et al.
-1. Start with a model where the fixed component contains all explanatory variables and as many interactions as possible. This is called the beyond optimal model. If this is impractical, e.g. due to a large number of explanatory variables, interactions, or numerical problems, use a selection of explanatory variables that you think are most likely to contribute to the optimal model.
-
-2. Using the beyond optimal model, find the optimal structure of the random component. Because we have as many explanatory variables as possible in the fixed component, the random component (hopefully) does not contain any information that we would like to have in the fixed component. The problem is that comparing two models with nested random structures cannot be done with ML because the estimators for the variance terms are biased. Therefore, we must use REML estimators to compare these (nested) models. Obtaining valid p-values for such tests is another non-trivial issue due to something called testing on the boundary, which we will discuss later in this section. As well as using the (REML) likelihood ratio test, we can also use the AIC or BIC, but again we need to use REML. Using AIC or BIC does not avoid boundary problems.
-
-3. Once the optimal random structure has been found, it is time to find the optimal fixed structure. As mentioned above, we can either use the F-statistic or the t-statistic obtained with REML estimation or compare nested models. To compare models with nested fixed effects (but with the same random structure), ML estimation must be used and not REML. We discuss the details of these tests later in this chapter.
-
-4. Present the final model using REML estimation
 
 Steps:
 1. Random effects with clim PC1/2
