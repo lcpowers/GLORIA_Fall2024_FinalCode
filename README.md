@@ -1,8 +1,3 @@
----
-editor_options: 
-  markdown: 
-    wrap: 72
----
 
 # **U.S. Rocky Mountain GLORIA Project** 
 
