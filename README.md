@@ -2,7 +2,7 @@
 
 Final Code
 
-Authors: Claire Powers, Dan Doak, Erin Borgmann
+Authors: Claire Powers, Erin Borgmann, Dan Doak
 
 > This repository contains code that (1) prepares data for analyses, (2) performs a model selection process of two data sets of interest (species % cover and total plant cover), and (3) has a simple script for looking a basic model outputs. In order to manage the size of this repository, the only uploaded data sets are those needed for the model selection and results scripts. All other data sets are publicly available (see associated report for sources.)
 
