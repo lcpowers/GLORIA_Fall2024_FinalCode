@@ -312,7 +312,6 @@ for(s in summits){
 
 ```
 
-
 Merge veg data together for all parks
 ```{r merge_all_veg}
 
