@@ -14,7 +14,7 @@ Authors: Claire Powers, Dan Doak, Erin Borgmann
 
 ## **Scripts**
 
-### [1_DataPrep]{.underline}
+### 1_DataPrep
 
 #### VegetationData
 
@@ -69,7 +69,7 @@ format ready for model input.
 Compiles climate and total plant cover vegetation data into a table
 format ready for model input.
 
-### [**2_ModelSelection**]{.underline}
+### **2_ModelSelection**
 
 ##### *ModelSelection_1x1m_SpeciesLevel.Rmd* 
 
@@ -88,7 +88,7 @@ Finds best supported mixed effects model predicting changes in total
 plant cover at the summit-aspect level for using climate PCA axes 1 & 2
 and then explicit climate variables.
 
-### [**3_Results**]{.underline}
+### **3_Results**
 
 ##### *Final Models.Rmd* 
 
