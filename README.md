@@ -1,10 +1,10 @@
-# **U.S. Rocky Mountain GLORIA Project**
+# **Climate and species traits shape responses of alpine flora in the U.S. Rocky Mountains to a changing world**
 
 Final Code
 
-Project completed Fall 2024
-
 Authors: Claire Powers, Dan Doak, Erin Borgmann
+
+> This repository contains code that (1) prepares data for analyses, (2) performs a model selection process of two data sets of interest (species % cover and total plant cover), and (3) has a simple script for looking a basic model outputs. In order to manage the size of this repository, the only uploaded data sets are those needed for the model selection and results scripts. All other data sets are publicly available (see associated report for sources.)
 
 ## **Scripts**
 
