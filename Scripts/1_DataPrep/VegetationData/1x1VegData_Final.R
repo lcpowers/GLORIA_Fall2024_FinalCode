@@ -123,7 +123,7 @@ write_csv(veg_all,paste0("./Data/IntermediateData/all_1x1veg_no0s_final.csv"))
 
 # Expand the vegetation data to include meaningful zeros. 
 # Criteria to add in 0-values:
-# - Species occurs on that summit at some point in the study period, but was not recorded in that quadrat.
+# - Species occurs on summit 's' at some point in the study period, but was not recorded in quadrat.
 summits = unique(veg_all$summit)
 all_1x1veg = NULL
 
@@ -142,7 +142,7 @@ for(s in summits){
     
     tmp.s.a = filter(tmp.s,aspect==a) %>% # filter summit data to summit.aspect
       group_by(park,summit,aspect,plot,sciname,year) %>% 
-      summarise(cover = sum(cover), .groups = "drop") #
+      summarise(cover = sum(cover), .groups = "drop") # This deals with instances of when a species was recorded more than once in the same plot
     
     years = unique(tmp.s.a$year)
     plots = unique(tmp.s.a$plot)
@@ -155,14 +155,12 @@ for(s in summits){
                              sciname=spp)
     
     tmp.s.a.out = merge(tmp.s.a,tmp.expand,by=c("park","summit","year","aspect","sciname","plot"),all=T)
-    tmp.s.a.out$cover = replace_na(tmp.s.a.out$cover,value = 0)
+    tmp.s.a.out$cover = replace_na(tmp.s.a.out$cover,0)
     
     all_1x1veg = rbind(all_1x1veg,tmp.s.a.out)
     
-    }
-
-  # all_1x1veg = rbind(all_1x1veg,tmp.s.a.out)
-}
+    } # End aspect loop
+} # End summit loop
 
 # Write output data set that includes meaningful zeros
 write_csv(all_1x1veg,paste0("./Data/IntermediateData/all_1x1veg_w0s_final.csv"))
