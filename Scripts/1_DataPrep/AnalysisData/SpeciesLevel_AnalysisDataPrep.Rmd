@@ -394,7 +394,6 @@ all_parks <- rbind(gnp_Ts,gsd_Ts,rmn_Ts,ynp_Ts,pec_Ts) %>%
 
 ```
 
-
 # Now bring in WB model water/snow year data
 ```{r snow_wbmdata}
 
@@ -482,7 +481,6 @@ all_parks_h20yr <- merge(all_parks,snowdays,by=c("park","summit","aspect","trans
   merge(.,h20yppt,by=c("park","summit","aspect","transition"))
 ```
 
-
 # WB model grw szn precip data data
 ```{r water_wbmdata}
 
@@ -565,20 +563,19 @@ climcor = cor(pcadf[c(climcols)])
 climpca = prcomp(pcadf[climcols],scale. = T)
   
 # Plot PCA
-autoplot(climpca,data=pcadf,
-         loadings=TRUE,loadings.colour="grey60",
-         loadings.label.colour="black",
-         loadings.label=T,loadings.label.size=4,
-         loadings.label.just=0, colour = 'park',fill="park",frame=TRUE,frame.type="convex",frame.alpha=0.1)+
-  theme_classic(base_size = 16)+
-  theme(legend.title = element_blank())
+# autoplot(climpca,data=pcadf,
+#          loadings=TRUE,loadings.colour="grey60",
+#          loadings.label.colour="black",
+#          loadings.label=T,loadings.label.size=4,
+#          loadings.label.just=0, colour = 'park',fill="park",frame=TRUE,frame.type="convex",frame.alpha=0.1)+
+#   theme_classic(base_size = 16)+
+#   theme(legend.title = element_blank())
 
-pcadf$aspect = factor(climdf$aspect,levels=c("N","S","E","W"))
+pcadf$aspect = factor(pcadf$aspect,levels=c("N","S","E","W"))
 
 ### Look at PCs 1&2 vs climate vars
 pca_df = cbind(pcadf,climpca$x)
 plot_cols = names(pca_df[,5:22])
-
 
 pcdat = as.data.frame(climpca$x) %>% select(climPC1=PC1,climPC2=PC2) %>% 
   cbind(pcadf[,1:4],.)
