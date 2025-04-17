@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Packages, data, models
 ```{r packages, include=FALSE}
-rm(list=ls())
+# rm(list=ls())
 
 ### Packages
 library(tidyverse)
@@ -100,11 +100,14 @@ climPC.mod.us = lmer(formula = climPC.mod.str, na.action = "na.fail", data = spp
 
 # Best explicit climate variable model
 # model string
-climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + sitelat) + habit*(min.gdd + sitelat) + perenneating*max.tmean + (1 | transition) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd | sciname)"
+
+# Simplified model call from dredge output
+climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + sitelat) + habit*(max.tmean + min.gdd + sitelat) + perenneating*max.tmean + (1 | transition) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd | sciname)"
 
 # Refit with REML
-climVar.mod.s = lmer(formula = climVar.mod.str, na.action = "na.fail", data = sppcover.scaled, REML = T)
+climVar.mod.s = lmer(formula = climVar.mod.str, na.action = "na.fail", data = dats.scaled, REML = F)
 climVar.mod.us = lmer(formula = climVar.mod.str, na.action = "na.fail", data = sppcover.unscaled, REML = T)
+
 rm(climPC.mod.str,climVar.mod.str)
 
 climPC.plantCover.mod.us = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|transition), na.action = "na.fail",data = na.omit(plantcover.us),REML = TRUE)
