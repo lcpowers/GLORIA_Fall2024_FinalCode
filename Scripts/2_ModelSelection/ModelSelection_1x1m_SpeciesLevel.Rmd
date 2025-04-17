@@ -11,7 +11,7 @@ Steps:
 
 ## Packages and data
 ```{r start}
-rm(list=ls())
+# rm(list=ls())
 
 ### Packages
 library(tidyverse)
@@ -19,11 +19,14 @@ library(lme4)
 library(MuMIn)
 library(rje)
 library(parallel)
+library(doParallel)
 library(forcats)
 library(sjPlot)
 library(sjmisc)
 library(sjlabelled)
 library(performance)
+library(data.table)
+library(foreach)
 
 ### Read in and clean data
 dats.orig = read_csv('Data/AnalysisData/specieslevel_analysisdata_final.csv')
@@ -42,6 +45,7 @@ scale_cols = dats %>% select(startcover,climPC1,climPC2,sitelat,contains(c("1090
 dats.scaled[scale_cols]=lapply(dats.scaled[scale_cols], function(x) scale(x))
 # not_all_na <- function(x) any(!is.na(x))
 rm(scale_cols)
+
 ```
 
 
@@ -118,7 +122,7 @@ for(i in 1:nrow(REcombos)){
 rm(r_ints,r_slopes,i,slope_vars,int_vars)
 
 REcombos$deltaAIC = REcombos$AICc-min(REcombos$AICc)
-write_csv(REcombos,"Results/RandomEffects/modSelectionTable.csv")
+# write_csv(REcombos,"Results/RandomEffects/modSelectionTable.csv")
 ```
 
 
@@ -136,34 +140,43 @@ climPC.RE.mod.MLfit = lmer(formula = climPC.RE.mod,na.action =  "na.fail",data =
 climPC.RE.mod.MLfit
 starttime = Sys.time()
 
-# Dredge this model
-clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
-clust <- try(makeCluster(getOption("cl.cores", 4), type = clusterType))
-clusterEvalQ(clust, library(lme4))
-clusterExport(clust,"dats.scaled")
-
-climPC.RE.mod.dredge = dredge(climPC.RE.mod.MLfit,
-                        beta = c("none"),
-                        fixed = c('startcover',"climPC1","climPC2"), # Fixing clim PC1 and clim PC2 because they are random slope terms
-                        trace=2,
-                        subset = dc(latmean1090,I(latmean1090^2)),
-                        cluster = clust)
-
-stopCluster(clust)
-rm(clust)
-
-climPC.RE.mod.dredge.fltr = filter(climPC.RE.mod.dredge,delta<1)
+# # Dredge this model
+# clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
+# clust <- try(makeCluster(getOption("cl.cores", 35), type = clusterType))
+# clusterEvalQ(clust, library(lme4))
+# clusterExport(clust,"dats.scaled")
+# 
+# climPC.RE.mod.dredge =  dredge(climPC.RE.mod.MLfit,
+#                         beta = c("none"),
+#                         fixed = c('startcover',"climPC1","climPC2"), # Fixing clim PC1 and clim PC2 because they are random slope terms
+#                         trace=2,
+#                         subset = dc(latmean1090,I(latmean1090^2)),
+#                         cluster = clust)
+# 
+# stopCluster(clust)
+# rm(clust)
+# 
+# climPC.RE.mod.dredge.fltr = filter(climPC.RE.mod.dredge,delta<1)
 # write_csv(as.data.frame(climPC.RE.mod.dredge.fltr),"climPC dredge results.csv")
 # 
 # 
 #
-best.climPC.fe.mod = get.models(climPC.RE.mod.dredge.fltr,subset = 1)[[1]]
-best.climPC.fe.mod@call
+# best.climPC.fe.mod = get.models(climPC.RE.mod.dredge.fltr,subset = 1)[[1]]
+# best.climPC.fe.mod@call
 ```
 
 
 3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
 ```{r best.clim.vars}
+
+top_mod <- read_csv("Results/top_dredge_results.csv") %>% 
+  filter(delta==0) %>% 
+  select_if(~ !any(is.na(.)))
+
+# names(top_mod)
+best.climPC.fe.mod = "endcover ~ startcover*(climPC1 + latmean1090 + I(latmean1090^2) + sitelat) + climPC2*perenneating + habit*climPC1 + habit*sitelat + (1 | transition) + (climPC1 + climPC2 | sciname)"
+best.climPC.mod = lmer(formula = best.climPC.fe.mod,na.action =  "na.fail",data = dats.scaled,REML = F)
+summary(best.climPC.mod)
 
 # Create climate variable variable groups
 val = c("min","max","mean")
@@ -173,73 +186,79 @@ ppt.grp = append(paste0(val,".gs.ppt"),NA)
 cwd.grp =  append(c(paste0(val,".aet"),paste0(val,".pet"),paste0(val,".wy.ppt")),NA)
 rm(val)
 
-# to see number of combinations
-clim.combos.df = expand_grid(tmean.grp,snow.gdd.grp,ppt.grp,cwd.grp) %>% filter(rowSums(is.na(.))!=ncol(.))
+climVar_param_grid <- expand_grid(tmean.grp,snow.gdd.grp,ppt.grp,cwd.grp) %>%
+  filter(!if_all(everything(), is.na))
 
-best.climPC.fe.mod = "endcover ~ startcover*(climPC1 + latmean1090 + I(latmean1090^2) + sitelat) + climPC2*perenneating + habit*climPC1 + habit*sitelat + (1 | transition) + (climPC1 + climPC2 | sciname)"
-best.climPC.mod = lmer(formula = best.climPC.fe.mod,na.action =  "na.fail",data = dats.scaled,REML = F)
-summary(best.climPC.mod)
 best.climPC.fe.mod.noRSs = "endcover ~ startcover*(climPC1 + latmean1090 + I(latmean1090^2) + sitelat) + climPC2*perenneating + habit*climPC1 + habit*sitelat + (1 | transition)"
 
 climVar.generic.mod = "endcover ~ startcover*(tmean.var + cwd.var + ppt.var + snow.gdd.var + latmean1090 + I(latmean1090^2) + sitelat) + (tmean.var + cwd.var + ppt.var + snow.gdd.var)*perenneating + habit*(tmean.var + cwd.var + ppt.var + snow.gdd.var) + habit*sitelat + (1 | transition)"
 
 # In each iteration, a single climate variable from each group is subbed in for the generic climate variables above (i.e., tmean.var is swapped out for mean.tmean). That model is then fit with ML (not REML) and the AIC value is stored in the output table for comparison once the loops are finished running
 
-# Store results
-clim.mod.AICs = NULL
 
-for(tmean.i in tmean.grp){ # tmean group loop
-  for(cwd.i in cwd.grp){ # snow gdd group loop
-    for(ppt.i in ppt.grp){ #ppt group loop
-      for(snow.gdd.i in snow.gdd.grp){ # cwd_group loop 
-        
-        # If all clim vals are NA skip to next loop
-        if(is.na(tmean.i)&is.na(cwd.i)&is.na(ppt.i)&is.na(snow.gdd.i)) next
-        
-        clim.mod.i = climVar.generic.mod
-        
-        # either remove tmean.var or replace with specific tmean variable name. Repeat the same process for all other clim variable groups
-        if(is.na(tmean.i)) {clim.mod.i = gsub(pattern = "tmean.var + ",replacement = "", x = clim.mod.i, fixed = T)
-        }else{clim.mod.i = gsub(pattern = "tmean.var",replacement = tmean.i,x = clim.mod.i)}
-        
-        if(is.na(cwd.i)) {clim.mod.i = gsub(pattern = "cwd.var + ",replacement = "", x = clim.mod.i, fixed = T)
-        }else{clim.mod.i = gsub(pattern = "cwd.var",replacement = cwd.i,x = clim.mod.i)}
-                
-        if(is.na(ppt.i)) {clim.mod.i = gsub(pattern = "ppt.var + ",replacement = "", x = clim.mod.i, fixed = T)
-        }else{clim.mod.i = gsub(pattern = "ppt.var",replacement = ppt.i,x = clim.mod.i)}
-        
-        if(is.na(snow.gdd.i)) {clim.mod.i = gsub(pattern = " + snow.gdd.var",replacement = "", x = clim.mod.i, fixed = T)
-        }else{clim.mod.i = gsub(pattern = "snow.gdd.var",replacement = snow.gdd.i,x = clim.mod.i)}
-        
-        out_df = data.frame(tmean.var = tmean.i,
-                    snow.gdd.var = snow.gdd.i,
-                    ppt.var = ppt.i,
-                    cwd.var = cwd.i,
-                    mod.str = clim.mod.i)
-        
-        # Fit in LMER
-        mod.fit.i = lmer(formula = clim.mod.i, data = dats.scaled, REML = FALSE, na.action = "na.fail")
+#### Initiate cluster #####
+cl = makeCluster(spec = 10)
+registerDoParallel(cl = cl)
 
-        out_df$AICc=AICc(mod.fit.i)
-        out_df$condR2 = r2(mod.fit.i)[[1]]
-        out_df$margR2 = r.squaredGLMM(mod.fit.i)[[2]]
+results_list <- foreach::foreach(i = 1:nrow(climVar_param_grid), .packages = c("tidyverse","data.table","lme4","performance") )%dopar%{
+  
+  row.i <- climVar_param_grid[i,]
+  
+  tmean.i <- row.i$tmean.grp
+  cwd.i <- row.i$cwd.grp
+  ppt.i <- row.i$ppt.grp
+  snow.gdd.i <- row.i$snow.gdd.grp
+  
+  clim.mod.i = climVar.generic.mod 
+  
+  # If all clim vals are NA skip to next loop
+  # if(is.na(tmean.i)&is.na(cwd.i)&is.na(ppt.i)&is.na(snow.gdd.i)) next
+  
+  # either remove tmean.var or replace with specific tmean variable name. Repeat the same process for all other clim variable groups
+  if(is.na(tmean.i)) {clim.mod.i = gsub(pattern = "tmean.var + ",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "tmean.var",replacement = tmean.i,x = clim.mod.i)}
+  
+  if(is.na(cwd.i)) {clim.mod.i = gsub(pattern = "cwd.var + ",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "cwd.var",replacement = cwd.i,x = clim.mod.i)}
+          
+  if(is.na(ppt.i)) {clim.mod.i = gsub(pattern = "ppt.var + ",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "ppt.var",replacement = ppt.i,x = clim.mod.i)}
+  
+  if(is.na(snow.gdd.i)) {clim.mod.i = gsub(pattern = " + snow.gdd.var",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "snow.gdd.var",replacement = snow.gdd.i,x = clim.mod.i)}
+  
+  out_df = data.table(tmean.var = tmean.i,
+            snow.gdd.var = snow.gdd.i,
+            ppt.var = ppt.i,
+            cwd.var = cwd.i,
+            mod.str = clim.mod.i)
+  
+   # Fit in LMER
+    mod.fit.i = lmer(formula = clim.mod.i, data = dats.scaled, REML = FALSE, na.action = "na.fail")
 
-        clim.mod.AICs = rbind(clim.mod.AICs,out_df)
-        rm(out_df,clim.mod.i)
-        # rm(mod.fit.i,clim.mod.i)
-      }
-    }
-  }
+    out_df$AICc=AICc(mod.fit.i)
+    out_df$condR2 = r2(mod.fit.i)[[1]]
+    out_df$margR2 = r.squaredGLMM(mod.fit.i)[[2]]
+    return(out_df)
+    
+    rm(out_df,clim.mod.i)
+    # rm(mod.fit.i,clim.mod.i)
+
 }
+stopCluster(cl)
+#clim.mod.AICs <- rbindlist(results_list)
 
-clim.mod.AICs$deltaAIC = clim.mod.AICs$AICc - min(clim.mod.AICs$AICc)
-best.ExplClimVar.mod.str <- clim.mod.AICs$mod.str[clim.mod.AICs$deltaAIC==0]
-best.ExplClimVar.mod.str
+#clim.mod.AICs$delta = clim.mod.AICs$AICc - min(clim.mod.AICs$AICc)
+#clim.mod.AICs <- clim.mod.AICs %>% arrange(delta)
+
+#best.ExplClimVar.mod.str <- clim.mod.AICs$mod.str[clim.mod.AICs$deltaAIC==0]
+#best.ExplClimVar.mod.str
 ```
 
 
 4. With the best climate variables, revisit random slopes letting all combos of best clim variables be random slopes
 ```{r explClimVars.REs}
+
 # Random intercept candidate variables
 int_vars = c("PSaspect","sciname","transition")
 r_ints = powerSet(int_vars)
@@ -336,13 +355,13 @@ best.explClimVar.RE.mod.ML = lmer(formula = best.explClim.RE.mod ,na.action =  "
 
 # Dredge this model
 clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
-clust <- try(makeCluster(getOption("cl.cores", 40), type = clusterType))
+clust <- try(makeCluster(getOption("cl.cores", 30), type = clusterType))
 clusterEvalQ(clust, library(lme4))
 clusterExport(clust,"dats.scaled")
 
 best.explClimVar.RE.mod.dredge = dredge(best.explClimVar.RE.mod.ML,
                         beta = c("none"),
-                        fixed = c('startcover','min.gs.ppt','min.gdd',"min.wy.ppt","max.tmean"),
+                        fixed = c('startcover','min.gs.ppt','min.gdd',"min.wy.ppt","max.tmean","sitelat"),
                         trace=2,
                         subset = dc(latmean1090,I(latmean1090^2)),
                         cluster = clust)
@@ -351,8 +370,11 @@ stopCluster(clust)
 rm(clust)
 
 explClimVar.RE.mod.dredge.fltr = filter(best.explClimVar.RE.mod.dredge,delta<1)
-best.explClimVar.mod = get.models(explClimVar.RE.mod.dredge.fltr,subset = 2)[[1]]
+best.explClimVar.mod = get.models(explClimVar.RE.mod.dredge.fltr,subset = 1)[[1]]
 best.explClimVar.mod@call
-```
+summary(best.explClimVar.mod)
 
+# Choosing the second model because it's slightly simpler and a very similar AICc value (one less interaction term)
+best.climVar.mod <- get.models(best.explClimVar.RE.mod.dredge, subset = 2)[[1]]
+```
 
