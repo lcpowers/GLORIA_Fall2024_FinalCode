@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Packages and data
 ```{r start}
-rm(list=ls())
+# rm(list=ls())
 
 ### Packages
 library(tidyverse)
@@ -33,7 +33,7 @@ library(modelsummary)
 dats.orig = read_csv('Data/AnalysisData/specieslevel_analysisdata_final.csv')
 dats=dats.orig %>% 
   drop_na(startcover,climPC1,climPC2,latmax1090,latmin1090,latmean1090,latmedian1090) %>% 
-  filter(abs(changecover)<=10) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
+  filter(abs(changecover)<=20) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
   filter(startcover+endcover!=0) %>%  # remove cases where a species did not have start or end cover
   mutate(parksummit = paste(park,summit,sep="."),
          PSaspect = paste(park,summit,aspect,sep="."),
@@ -83,9 +83,8 @@ $$endcover \sim startcover*(latmean1090 + latmean1090^2 + min.gdd + min.gs.ppt +
 ```{r best.ClimVar.mod.scaled}
 
 # Simplified model call from dredge output
-climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + sitelat) + habit*(min.gdd + sitelat) + perenneating*max.tmean + (1 | transition) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd | sciname)"
+climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + max.tmean + sitelat) + habit*(max.tmean + min.gdd + sitelat) + perenneating*max.tmean + (1 | transition) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd | sciname)"
 
-# Scaled data
 climVar.mod.s = lmer(formula = climVar.mod.str, na.action =  "na.fail", data = dats.scaled, REML = T)
 
 # unscaled
@@ -93,9 +92,6 @@ climVar.mod.us = lmer(formula = climVar.mod.str, na.action =  "na.fail", data = 
 
 plot_model(climVar.mod.s,show.p = T,show.legend = T,show.values = T,value.offset = c(0.35),title="Scaled data")+theme_bw(base_size = 14)
 plot_model(climVar.mod.s,show.p = T,show.legend = T,show.values = T,value.offset = c(0.35),axis.lim = c(-2,2))+theme_bw(base_size = 14)
-
-tab_model(climVar.mod.s)
-
 
 # Climate variable model output with unscaled data
 plot_model(climVar.mod.us,show.p = T,show.legend = T,show.values = T,value.offset = c(0.35),title = "Unscaled data")+theme_bw(base_size = 14)
