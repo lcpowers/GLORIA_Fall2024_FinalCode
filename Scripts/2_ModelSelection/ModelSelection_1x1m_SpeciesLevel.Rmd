@@ -376,5 +376,14 @@ summary(best.explClimVar.mod)
 
 # Choosing the second model because it's slightly simpler and a very similar AICc value (one less interaction term)
 best.climVar.mod <- get.models(best.explClimVar.RE.mod.dredge, subset = 2)[[1]]
+best.climVar.mod@call
 ```
 
+lmer(formula = endcover ~ habit + latmean1090 + I(latmean1090^2) + 
+    perenneating + max.tmean + min.gdd + min.gs.ppt + min.wy.ppt + 
+    sitelat + startcover + (1 | transition) + (max.tmean + min.wy.ppt + 
+    min.gs.ppt + min.gdd | sciname) + habit:max.tmean + habit:min.gdd + 
+    habit:sitelat + latmean1090:startcover + I(latmean1090^2):startcover + 
+    perenneating:max.tmean + min.gdd:startcover + startcover:min.gs.ppt + 
+    startcover:min.wy.ppt + sitelat:startcover, data = dats.scaled, 
+    REML = FALSE, na.action = "na.fail")
