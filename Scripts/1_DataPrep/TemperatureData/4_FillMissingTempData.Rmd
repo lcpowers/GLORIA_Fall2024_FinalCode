@@ -286,7 +286,7 @@ GSD_final <- GSD_final_df %>%
   select(-x) %>% 
   mutate(park="GSD")
 colnames(GSD_final)[4] <- "tmean"
-write_csv(GSD_final,"./Data/IntermediateData/InterpDailyT/GSD_meandailyT.csv")
+write_csv(GSD_final,"./Data/IntermediateData/FilledTempData/GSD_meandailyT.csv")
 
 RMN_final <- RMN_filledNAs_df %>% 
   melt(id.vars="date") %>% 
@@ -295,7 +295,7 @@ RMN_final <- RMN_filledNAs_df %>%
   select(-x) %>% 
   mutate(park="RMN")
 colnames(RMN_final)[4] <- "tmean"
-write_csv(RMN_final,"./Data/IntermediateData/InterpDailyT/RMN_meandailyT.csv")
+write_csv(RMN_final,"./Data/IntermediateData/FilledTempData/RMN_meandailyT.csv")
 
 YNP_final <- YNP_filledNAs_df %>% 
   melt(id.vars="date") %>% 
@@ -304,7 +304,7 @@ YNP_final <- YNP_filledNAs_df %>%
   select(-x) %>% 
   mutate(park="YNP")
 colnames(YNP_final)[4] <- "tmean"
-write_csv(YNP_final,"./Data/IntermediateData/InterpDailyT/YNP_meandailyT.csv")
+write_csv(YNP_final,"./Data/IntermediateData/FilledTempData/YNP_meandailyT.csv")
 
 GNP_final <- GNP_filledNAs_df %>% 
   melt(id.vars="date") %>% 
@@ -313,6 +313,6 @@ GNP_final <- GNP_filledNAs_df %>%
   select(-x) %>% 
   mutate(park="GNP")
 colnames(GNP_final)[4] <- "tmean"
-write_csv(GNP_final,"./Data/IntermediateData/InterpDailyT/GNP_meandailyT.csv")
+write_csv(GNP_final,"./Data/IntermediateData/FilledTempData/GNP_meandailyT.csv")
 ```
 

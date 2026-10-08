@@ -23,24 +23,25 @@ library(ggfortify)
 library(cowplot)
 library(ggh4x)
 library(ggpmisc)
+library(patchwork)
 
 ## Color palettes ##
-park.pal = c(GLAC='#B07AA1',YELL='#1170AA',ROMO='#59A14F',GRSD='#E6AB02',PECO='#C85200')
+park.pal = c(GLAC='#B07AA1',YELL='#1170AA',ROMO='#59A14F',GRSD='#E6AB02',PECO='#C85210',ALL="grey" )
 # colpal = c(gnp_col,ynp_col,rmn_col,gsd_col,pec_col)
 
 # park.pal = viridis::viridis(n=5);scales::show_col(park.pal);names(park.pal)=c("GNP","YNP","RMN","GSD","PEC")
 
-cover.pal3 = c(High = "#534666",Med = "#138086",Low="#DC8655")#;scales::show_col(cover.pal3)
+cover.pal3 = c(High = "#534666",Medium = "#138086",Low="#DC8655")#;scales::show_col(cover.pal3)
 # cover.pal3 = viridis::rocket(n=6)[c(2,3,5)];scales::show_col(cover.pal3)
 names(cover.pal3) = c("High","Med","Low")
 
 ## Data ##
-park2.order = c("GLAC","YELL","ROMO","GRSD","PECO")
+park2.order = c("GLAC","YELL","ROMO","GRSD","PECO") |> rev()
 
 ###### Total vasc plant cover ######
 
 ### Read in and clean data
-plantcover.us =read_csv('./AnalysisData/vascplantcover_final.csv') %>%
+plantcover.us =read_csv('Data/AnalysisData/vascplantcover_final.csv') %>%
   filter(!is.na(start.plantCover)) %>%
   mutate(park2 = case_when(park=="GNP"~"GLAC",
                            park=="YNP"~"YELL",
@@ -61,7 +62,7 @@ plantcover.s[scale_cols]=lapply(plantcover.s[scale_cols], function(x) scale(x))
 ##### End vasc plant cover #####
 
 sppmodelvars = c("sciname","endcover","startcover","latmean1090","sitelat","climPC1","climPC2","habit","perenneating","transition","sciname","min.gdd","min.gs.ppt","min.wy.ppt","max.tmean","park")
-sppcover.orig = read_csv('./AnalysisData/analysisdata_final.csv') %>% 
+sppcover.orig = read_csv('Data/AnalysisData/specieslevel_analysisdata_final.csv') %>% 
   mutate(park2 = case_when(park=="GNP"~"GLAC",
                            park=="YNP"~"YELL",
                            park=="RMN"~"ROMO",
@@ -113,9 +114,46 @@ climPC.plantCover.mod.us = lmer(end.plantCover~start.plantCover*(climPC1+climPC2
 climVar.plantCover.mod.us = lmer(formula = end.plantCover ~ max.snowdays + mean.gs.ppt + min.wy.ppt + park + start.plantCover + max.snowdays:start.plantCover + mean.gs.ppt:start.plantCover + min.wy.ppt:start.plantCover + (1 | transition), data = plantcover.us, REML = FALSE, na.action = "na.fail")
 ```
 
-## Figure 1. PRISM time series
+
+## Figure 1. PCA plot
+```{r fig2_climpca}
+
+pca_df = sppcover.orig %>% 
+  drop_na(startcover,climPC1,climPC2,latmax1090,latmin1090,latmean1090,latmedian1090) %>% 
+  filter(abs(changecover)<=10) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
+  filter(startcover+endcover!=0) %>% 
+  select(park,park2,summit,aspect,transition,contains(c(".tmean",".snow",".gdd",".ppt",".pet",".aet"))) %>% 
+  mutate(park2 = factor(park2,levels=park2.order))
+
+climcols = select(pca_df,contains(c(".tmean",".snow",".gdd",".ppt",".pet",".aet"))) %>% names()
+
+# PCA on climate cols of climdf
+climpca = prcomp(pca_df[climcols],scale. = T)
+  
+# Plot PCA
+autoplot(climpca,data=pca_df,
+         frame=T,
+         frame.alpha=0.1,
+         loadings=TRUE,
+         loadings.colour="grey50",
+         loadings.label.colour="black",
+         loadings.label=T,
+         loadings.label.fontface="bold",
+         loadings.label.repel=T,
+         loadings.label.size=4,
+         loadings.label.just=0, colour = 'park2')+
+  scale_x_continuous(limits=c(-0.04,0.05))+
+  scale_color_manual(values=park.pal)+
+  scale_fill_manual(values=park.pal)+
+  theme_classic(base_size = 16)+
+  theme(legend.title = element_blank())
+ggsave("FinalFigures/figure1_pca.png",h=7,w=9,dpi=500)
+rm(pca_df,climpca,climcols)
+```
+
+## Figure 2. PRISM time series
 ```{r fig1_PRISM.TS}
-d.soil.temps = read_csv("InputData/byClaire/dailyT_alldates.csv") %>% 
+d.soil.temps = read_csv("Data/IntermediateData/allparks_dailyT_final.csv") %>% 
   # read_csv("InputData/byClaire/allparks_dailyT_2022-11-01.csv") %>%
   filter(!(park=="PEC"&date<"2016-07-10")) %>%
   filter(!(park=="YNP"&date>"2016-09-01"))
@@ -123,7 +161,7 @@ d.soil.temps = read_csv("InputData/byClaire/dailyT_alldates.csv") %>%
 unique(d.soil.temps$year[d.soil.temps$park=="YNP"])
 
 # Read in prism data
-prism_files <- list.files("./InputData/climate/prism/", pattern = ".csv",full.names = T)
+prism_files <- list.files("Data/climate/prism/", pattern = ".csv",full.names = T)
 park.summit = select(plantcover.us,park,summit) %>% unique()
 d.prism.temps = NULL
 for(i in prism_files){
@@ -184,44 +222,8 @@ ggplot()+
         legend.direction = "vertical")+
   labs(x = "Year", y = "Mean annual temperature (C)\nPRISM data")
 
-ggsave("Results/FinalFigures/figure1_PRISM_TS.png",dpi=300,h=6.5,w=10)
+ggsave("FinalFigures/figure2_PRISM_TS.png",dpi=400,h=6.5,w=10)
 rm(y.prism.temps,d.prism.temps,d.soil.temps,study.years)
-```
-
-## Figure 2. PCA plot
-```{r fig2_climpca}
-
-pca_df = sppcover.orig %>% 
-  drop_na(startcover,climPC1,climPC2,latmax1090,latmin1090,latmean1090,latmedian1090) %>% 
-  filter(abs(changecover)<=10) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
-  filter(startcover+endcover!=0) %>% 
-  select(park,park2,summit,aspect,transition,contains(c(".tmean",".snow",".gdd",".ppt",".pet",".aet"))) %>% 
-  mutate(park2 = factor(park2,levels=park2.order))
-
-climcols = select(pca_df,contains(c(".tmean",".snow",".gdd",".ppt",".pet",".aet"))) %>% names()
-
-# PCA on climate cols of climdf
-climpca = prcomp(pca_df[climcols],scale. = T)
-  
-# Plot PCA
-autoplot(climpca,data=pca_df,
-         frame=T,
-         frame.alpha=0.1,
-         loadings=TRUE,
-         loadings.colour="grey50",
-         loadings.label.colour="black",
-         loadings.label=T,
-         loadings.label.fontface="bold",
-         loadings.label.repel=T,
-         loadings.label.size=4,
-         loadings.label.just=0, colour = 'park2')+
-  scale_x_continuous(limits=c(-0.04,0.05))+
-  scale_color_manual(values=park.pal)+
-  scale_fill_manual(values=park.pal)+
-  theme_classic(base_size = 16)+
-  theme(legend.title = element_blank())
-ggsave("Results/FinalFigures/figure2_pca.png",h=7,w=9,dpi=500)
-rm(pca_df,climpca,climcols)
 ```
 
 ## Figure 3. Change cover ~ start cover cats for all
@@ -250,27 +252,30 @@ ggplot(sppcover.unscaled2,aes(x=startcovcats,y=changecover))+
   theme_bw(base_size = 14)+
   labs(x="Starting cover",y="Change in cover")+
   theme(panel.grid = element_blank())
-ggsave("Results/FinalFigures/figure3_boxPlots.png",h=6,w=10,dpi=400)
+# ggsave("Results/FinalFigures/figure3_boxPlots.png",h=6,w=10,dpi=400)
 
 ```
 
 ## Figure 4. Change cover ~ start cover cats by park
 ```{r DansFigs_4}
+plot <- sppcover.unscaled2 %>% 
+  mutate(park2 = "ALL")
 
-ggplot(sppcover.unscaled2,aes(x=startcovcats,y=changecover))+
+plot <- rbind(plot,sppcover.unscaled2)
+plot$park2 <- factor(plot$park2,levels=c("ALL",park2.order))
+
+ggplot(plot,aes(x=startcovcats,y=changecover,fill=park2))+
   geom_hline(yintercept = 0,color="black")+
   stat_boxplot(geom="errorbar")+
-  geom_boxplot(fill="grey80",
-               outlier.size = 1)+
+  geom_boxplot(outlier.size = 1)+
   #scale_y_continuous(breaks=seq(-15,15,5))+
-  theme_bw(base_size = 14)+
+  theme_bw(base_size = 15)+
   labs(x="Starting cover",y="Change in cover")+
-  theme(panel.grid = element_blank(),
-        strip.background = element_rect(fill="grey95"),
-        strip.text = element_text(face="bold"))+
+  theme(panel.grid = element_blank())+
+  scale_fill_manual(values=park.pal)+
+  theme(legend.position = "none")+
   facet_wrap(~park2,ncol=2,scales="free_y")
-ggsave("Results/FinalFigures/figure4_boxPlots_byPark.png",h=8,w=10,dpi=400)
-# dev.off()
+ggsave("FinalFigures/figure3_changeCoverCats.png",dpi=400,h=10,w=10)
 ```
 
 ## Figures 5 & 6. Climvar correlations. Finished in powerpoint
@@ -315,7 +320,7 @@ GGally::ggpairs(climVar.df,columns = 1:5,
     panel.grid = element_blank())+
   scale_fill_manual(values=park.pal2)+
   scale_color_manual(values=park.pal2)
-ggsave("Results/FinalFigures/figure5_climVarScatters.png",h=9,w=11,bg='transparent')
+# ggsave("Results/FinalFigures/figure5_climVarScatters.png",h=9,w=11,bg='transparent')
 
 ### Same but now for clim PCs
 climPC.df = clim.df %>% select(`Site latitude`= sitelat,climPC1,climPC2,park) %>% 
@@ -333,7 +338,7 @@ GGally::ggpairs(climPC.df,columns=1:3,
     panel.grid = element_blank())+
   scale_fill_manual(values=park.pal2)+
   scale_color_manual(values=park.pal2)
-ggsave("Results/FinalFigures/figure6_climPCScatters.png",h=9*3/5,w=11.5*3/5,bg='transparent')
+# ggsave("Results/FinalFigures/figure6_climPCScatters.png",h=9*3/5,w=11.5*3/5,bg='transparent')
 rm(clim.df,climpc_df,climPC.df,park.pal2)
 ```
 
@@ -356,7 +361,7 @@ ggplot(climPC.plotdf,aes(x=estimate,y=full.name,color=estimate>0))+
   scale_x_continuous(breaks=seq(-4,4,2))+
   scale_color_manual(values=c("red3","dodgerblue3"))+
   scale_y_discrete(limits=rev(levels(climPC.plotdf$full.name)),expand=c(0,1))
-ggsave("Results/FinalFigures/figure7_climPC_FEforestplots_unscaled.png",dpi=300,h=8,w=10)
+# ggsave("Results/FinalFigures/figure7_climPC_FEforestplots_unscaled.png",dpi=300,h=8,w=10)
 # rm(climPC.plotdf) 
 ```
 
@@ -483,13 +488,13 @@ forbQs = c(quantile(forb.predicts$startcover,probs=c(0.25)),quantile(forb.predic
 forbQs
 ## now assign factor var based on ranges around these quantiles. 
 forb.predicts$startnames[which(abs(forb.predicts$startcover - forbQs[1])<=0.2)]='Low'
-forb.predicts$startnames[which(abs(forb.predicts$startcover - forbQs[2])<=0.2)]='Med'
+forb.predicts$startnames[which(abs(forb.predicts$startcover - forbQs[2])<=0.2)]='Medium'
 forb.predicts$startnames[which(abs(forb.predicts$startcover - forbQs[3])<=0.5)]='High'
 
 table(forb.predicts$startnames)
 
 # Set factor level order for plots
-forb.predicts$startnames = factor(forb.predicts$startnames,levels=c("Low","Med","High"))
+forb.predicts$startnames = factor(forb.predicts$startnames,levels=c("Low","Medium","High"))
 
 ## Create a new data.frame that gets rid of data points that don't have a H, M, or L value
 forb.plots = forb.predicts  %>% 
@@ -510,24 +515,25 @@ forb.sitelat.lines = expand.grid(startcover = forbQs,
   mutate(pred.endcover = predict(climPC.mod.us,newdata=.,re.form=NA),
          pred.change = pred.endcover - startcover,
          startnames=ifelse(startcover==forbQs[1],"Low",
-                           ifelse(startcover==forbQs[2],"Med","High")))
-forb.sitelat.lines$startnames = factor(forb.sitelat.lines$startnames,levels=c("High","Med","Low"))
+                           ifelse(startcover==forbQs[2],"Medium","High")))
+forb.sitelat.lines$startnames = factor(forb.sitelat.lines$startnames,levels=c("High","Medium","Low"))
 
 ggplot() + 
   geom_hline(yintercept = 0)+
-  geom_jitter(data=filter(forb.plots,perenneating=="below"), aes(x=sitelat,y=pred.change,group=startnames,color=startnames),
+  geom_jitter(data=filter(forb.plots), aes(x=sitelat,y=pred.change,group=startnames,color=startnames),
               width = 0.2, height = 0.2,alpha=0.7,stroke=NA,size=2) +
-  geom_line(data=filter(forb.sitelat.lines,perenneating=="below"), aes(x=sitelat,y=pred.change, group=startnames, color=startnames),
+  geom_line(data=filter(forb.sitelat.lines), aes(x=sitelat,y=pred.change, group=startnames, color=startnames),
             linewidth=1.5) +
   scale_color_manual(values=cover.pal3) +
   theme_bw(base_size = 14)+
   labs(x="Site latitude",y="Change in cover",
        # title ='Forbs: change cover by site latitude',
        color="Start cover\ncategory") +
-  facet_grid2(perenneating~startnames,scales="free_y",independent = "y",labeller = labeller(perenneating=c("above"="Above-ground","below"="Below-ground")))+
-  theme(strip.text = element_blank())+
-  guides(colour = guide_legend(title.position = "top",title.hjust = 0.5))
-ggsave("Results/FinalFigures/figure10_forbs_by_sitelat.png",dpi=400,h=4,w=10)
+  facet_grid2(perenneating~startnames,scales="free_y",independent = "y",labeller = labeller(perenneating=c("above"="Above-ground","below"="Below-ground"),
+                                                                                            startnames = c("Low"="Low")))+
+  theme(legend.position = "none")
+  # guides(colour = guide_legend(title.position = "top",title.hjust = 0.5))
+ggsave("FinalFigures/figure5_forbs_by_sitelat.png",dpi=400,h=7,w=10)
 ###
 
 ##### latmean1090 driver ###
@@ -542,24 +548,24 @@ forb.latmean.lines = expand.grid(startcover = forbQs,
   mutate(pred.endcover = predict(climPC.mod.us,newdata=.,re.form=NA),
          pred.change = pred.endcover - startcover,
          startnames=ifelse(startcover==forbQs[1],"Low",
-                           ifelse(startcover==forbQs[2],"Med","High")))
-forb.latmean.lines$startnames = factor(forb.latmean.lines$startnames,levels=c("High","Med","Low"))
+                           ifelse(startcover==forbQs[2],"Medium","High")))
+forb.latmean.lines$startnames = factor(forb.latmean.lines$startnames,levels=c("High","Medium","Low"))
 
 ggplot() + 
   geom_hline(yintercept = 0)+
-  geom_jitter(data=filter(forb.plots,perenneating=="below"), aes(x=latmean1090,y=pred.change,group=startnames,color=startnames),
+  geom_jitter(data=filter(forb.plots), aes(x=latmean1090,y=pred.change,group=startnames,color=startnames),
               width = 0.2, height = 0.2,alpha=0.7,stroke=NA,size=2) +
-  geom_line(data=filter(forb.latmean.lines,perenneating=="below"), aes(x=latmean1090,y=pred.change, group=startnames, color=startnames),
+  geom_line(data=filter(forb.latmean.lines), aes(x=latmean1090,y=pred.change, group=startnames, color=startnames),
             linewidth=1.5) +
   scale_color_manual(values=cover.pal3) +
   theme_bw(base_size = 14)+
-  labs(x="Mean spp. latitude",y="Change in cover",
+  labs(x="Mean species latitude",y="Change in cover",
        # title ='Forbs: change cover by mean species latitude', 
        color="Start cover\ncategory") +
   facet_grid2(perenneating~startnames,scales="free_y",independent = "y",labeller = labeller(perenneating=c("above"="Above-ground","below"="Below-ground")))+
-  theme(strip.text = element_blank())+
-  guides(colour = guide_legend(title.position = "top",title.hjust = 0.5))
-ggsave("Results/FinalFigures/figure11_forbs_by_latmean1090.png",dpi=400,h=4,w=10)
+  theme(legend.position="none")
+  #guides(colour = guide_legend(title.position = "top",title.hjust = 0.5))
+ggsave("FinalFigures/figure6_forbs_by_latmean1090.png",dpi=400,h=7,w=10)
 
 ##### climPC1 driver ###
 forb.climPC1.lines = expand.grid(startcover = forbQs,
@@ -590,7 +596,7 @@ ggplot() +
   facet_grid2(perenneating~startnames,scales="free_y",independent = "y",labeller = labeller(perenneating=c("above"="Above-ground","below"="Below-ground")))+
   theme(strip.text = element_blank())+
   guides(colour = guide_legend(title.position = "top",title.hjust = 0.5))
-ggsave("Results/FinalFigures/figure12_forbs_by_climPC1.png",dpi=400,h=4,w=10)
+# ggsave("Results/FinalFigures/figure12_forbs_by_climPC1.png",dpi=400,h=4,w=10)
 
 ```
 
@@ -613,11 +619,11 @@ forbQs = c(quantile(forb.predicts$startcover,probs=c(0.25)),
 
 ## now assign factor var based on ranges around these quantiles. 
 forb.predicts$startnames[which(abs(forb.predicts$startcover - forbQs[1])<=0.1)]='Low'
-forb.predicts$startnames[which(abs(forb.predicts$startcover - forbQs[2])<=0.2)]='Med'
+forb.predicts$startnames[which(abs(forb.predicts$startcover - forbQs[2])<=0.2)]='Medium'
 forb.predicts$startnames[which(abs(forb.predicts$startcover - forbQs[3])<=0.5)]='High'
 
 # Set factor level order for plots
-forb.predicts$startnames = factor(forb.predicts$startnames,levels=c("Low","Med","High"))
+forb.predicts$startnames = factor(forb.predicts$startnames,levels=c("Low","Medium","High"))
 
 ## Create a new data.frame that gets rid of data points that don't have a H, M, or L value
 forb.plots = forb.predicts  %>% 
@@ -638,8 +644,8 @@ forb.wyppt.lines = expand.grid(sitelat = median(forb.predicts$sitelat),
   mutate(pred.endcover = predict(climVar.mod.us,newdata=.,re.form=NA),
          pred.change = pred.endcover - startcover,
          startnames=ifelse(startcover==forbQs[1],"Low",
-                           ifelse(startcover==forbQs[2],"Med","High")))
-forb.wyppt.lines$startnames = factor(forb.wyppt.lines$startnames,levels=c("High","Med","Low"))
+                           ifelse(startcover==forbQs[2],"Medium","High")))
+forb.wyppt.lines$startnames = factor(forb.wyppt.lines$startnames,levels=c("High","Medium","Low"))
 
 wy.forbs = ggplot() + 
   geom_hline(yintercept = 0)+
@@ -649,14 +655,13 @@ wy.forbs = ggplot() +
             linewidth=1.5) +
   scale_color_manual(values=cover.pal3) +
   theme_bw(base_size = 14)+
-  labs(x="Water year ppt",y="Change in cover",
+  labs(x="Water year precipitation",y="Change in cover",
        # title ='Forbs: change cover by water year ppt', 
        color="Start cover\ncategory") +
   #facet_wrap(~startnames,scales="free_y")+
   facet_grid2(perenneating~startnames,scales="free_y",independent = "y",labeller = labeller(perenneating=c("above"="Above-ground","below"="Below-ground")))+
-  theme(strip.text = element_blank())+
-  guides(colour = guide_legend(title.position = "top",title.hjust = 0.5));wy.forbs
-# ggsave("Results/FinalFigures/figure18a_forbs_by_wyppt.png",dpi=300,h=6,w=10)
+  theme(strip.text.y = element_blank(),
+        legend.position = "none");wy.forbs
 ######
 
 #### min.gs.ppt ####
@@ -672,8 +677,8 @@ forb.gsppt.lines = expand.grid(sitelat = median(forb.predicts$sitelat),
   mutate(pred.endcover = predict(climVar.mod.us,newdata=.,re.form=NA),
          pred.change = pred.endcover - startcover,
          startnames=ifelse(startcover==forbQs[1],"Low",
-                           ifelse(startcover==forbQs[2],"Med","High")))
-forb.gsppt.lines$startnames = factor(forb.gsppt.lines$startnames,levels=c("High","Med","Low"))
+                           ifelse(startcover==forbQs[2],"Medium","High")))
+forb.gsppt.lines$startnames = factor(forb.gsppt.lines$startnames,levels=c("High","Medium","Low"))
 
 gs.forbs = ggplot() + 
   geom_hline(yintercept = 0)+
@@ -683,14 +688,14 @@ gs.forbs = ggplot() +
             linewidth=1.5) +
   scale_color_manual(values=cover.pal3) +
   theme_bw(base_size = 14)+
-  labs(x="Growing season ppt",y="Change in cover",
+  labs(x="Growing season precipitation",y="Change in cover",
        # title ='Forbs: change cover by growing season ppt', 
        color="Start cover\ncategory") +
   # facet_wrap(~startnames,scales="free_y")+
   facet_grid2(perenneating~startnames,scales="free_y",independent = "y",labeller = labeller(perenneating=c("above"="Above-ground","below"="Below-ground")))+
-  theme(strip.text = element_blank())+
-  guides(colour = guide_legend(title.position = "top",title.hjust = 0.5));gs.forbs
-# ggsave("Results/FinalFigures/figure18b_forbs_by_gsppt.png",dpi=300,h=6,w=10)
+    theme(strip.text.y = element_blank(),
+        legend.position = "none");gs.forbs
+
 ######
 #### GDD ####
 forb.gdd.lines = expand.grid(sitelat = median(forb.predicts$sitelat),
@@ -705,8 +710,8 @@ forb.gdd.lines = expand.grid(sitelat = median(forb.predicts$sitelat),
   mutate(pred.endcover = predict(climVar.mod.us,newdata=.,re.form=NA),
          pred.change = pred.endcover - startcover,
          startnames=ifelse(startcover==forbQs[1],"Low",
-                           ifelse(startcover==forbQs[2],"Med","High")))
-forb.gdd.lines$startnames = factor(forb.gdd.lines$startnames,levels=c("High","Med","Low"))
+                           ifelse(startcover==forbQs[2],"Medium","High")))
+forb.gdd.lines$startnames = factor(forb.gdd.lines$startnames,levels=c("High","Medium","Low"))
 
 gdd.forbs = ggplot() +
   geom_hline(yintercept = 0)+
@@ -720,18 +725,12 @@ gdd.forbs = ggplot() +
        # title ='Forbs: change cover by growing degree days', 
        color="Start cover\ncategory") +
   facet_grid2(perenneating~startnames,scales="free_y",independent = "y",labeller = labeller(perenneating=c("above"="Above-ground","below"="Below-ground")))+
-  theme(strip.text = element_blank())+
-  guides(colour = guide_legend(title.position = "top",title.hjust = 0.5));gdd.forbs
-legend = get_legend(gdd.forbs)
+  theme(strip.text.y = element_blank(),
+        legend.position="none");gdd.forbs
 
-# ggsave("Results/FinalFigures/figure18c_forbs_by_gdd.png",dpi=300,h=6,w=10)
-######
+wy.forbs/plot_spacer()/gs.forbs/plot_spacer()/gdd.forbs + plot_layout(heights =c(1,0.05,1,0.05 ,1))
 
-cowplot::plot_grid(wy.forbs+theme(legend.position = "none"),NULL,
-                   gs.forbs+theme(legend.position = "none"),legend,
-                   gdd.forbs+theme(legend.position = "none"),NULL,
-                   ncol=2,rel_widths = c(0.8,0.1))
-ggsave("Results/FinalFigures/figure13_forbs_by_climVars.png",dpi=400,h=11,w=10)
+ggsave("FinalFigures/figure7_forbs_by_climVars.png",dpi=400,h=11,w=10)
 ```
 
 ## Figure 14: Grams and shrubs by sitelat
@@ -752,11 +751,11 @@ gramQs = c(quantile(gram.predicts$startcover,probs=c(0.2)),quantile(gram.predict
 
 ## now assign factor var based on ranges around these quantiles. 
 gram.predicts$startnames[which(abs(gram.predicts$startcover - gramQs[1])<=0.5)]='Low'
-gram.predicts$startnames[which(abs(gram.predicts$startcover - gramQs[2])<=0.25)]='Med'
+gram.predicts$startnames[which(abs(gram.predicts$startcover - gramQs[2])<=0.25)]='Medium'
 gram.predicts$startnames[which(abs(gram.predicts$startcover - gramQs[3])<=0.5)]='High'
 
 # Set factor level order for plots
-gram.predicts$startnames = factor(gram.predicts$startnames,levels=c("Low","Med","High"))
+gram.predicts$startnames = factor(gram.predicts$startnames,levels=c("Low","Medium","High"))
 
 ## Create a new data.frame that gets rid of data points that don't have a H, M, or L value
 gram.plots = gram.predicts  %>% 
@@ -774,8 +773,8 @@ gram.sitelat.lines = expand.grid(sitelat = unique(gram.predicts$sitelat),
   mutate(pred.endcover = predict(climPC.mod.us,newdata=.,re.form=NA),
          pred.change = pred.endcover - startcover,
          startnames=ifelse(startcover==gramQs[1],"Low",
-                           ifelse(startcover==gramQs[2],"Med","High")))
-gram.sitelat.lines$startnames = factor(gram.sitelat.lines$startnames,levels=c("High","Med","Low"))
+                           ifelse(startcover==gramQs[2],"Medium","High")))
+gram.sitelat.lines$startnames = factor(gram.sitelat.lines$startnames,levels=c("High","Medium","Low"))
 
 grams = ggplot() + 
   geom_hline(yintercept = 0)+
@@ -790,10 +789,9 @@ grams = ggplot() +
        # title ='Graminoids: change cover by site latitude',
        color="Start cover\ncategory") +
   facet_wrap(~startnames)+ 
-  theme(strip.text.x = element_blank(),
-        plot.title = element_text(face="bold"))+
-  guides(colour = guide_legend(title.position = "top",title.hjust = 0.5))
-ggsave("Results/FinalFigures/figure19a_grams_sitelat.png",dpi=300,h=5,w=10)
+  theme(plot.title = element_text(face="bold"),
+        legend.position = "none");grams
+# ggsave("FinalFigures/figure19a_grams_sitelat.png",dpi=300,h=5,w=10)
 ##### End grams by site lat #####
 
 ##### Shrubs by sitelat (climPC mod) #####
@@ -847,13 +845,12 @@ shrubs = ggplot() +
        title="B. Shrubs",
        color="Start cover\ncategory") +
   facet_wrap(~startnames)+ 
-  theme(strip.text.x = element_blank(),
-        plot.title=element_text(face="bold"))+
-  guides(colour = guide_legend(title.position = "top",title.hjust = 0.5))
-# ggsave("Results/FinalFigures/figure19b_shrubs_sitelat.png",dpi=400,h=5,w=7)
-shrubs2 = cowplot::plot_grid(NULL,shrubs,NULL,rel_widths = c(0.1,1,0.1),ncol=3)
+  theme(legend.position = "none",
+        plot.title=element_text(face="bold"))
+# ggsave("FinalFigures/figure19b_shrubs_sitelat.png",dpi=400,h=5,w=7)
+shrubs2 = cowplot::plot_grid(NULL,shrubs,NULL,rel_widths = c(0.175,1,0.175),ncol=3)
 cowplot::plot_grid(grams,shrubs2,ncol=1,align = "v",axis = "lb")
-ggsave("Results/FinalFigures/figure19_grams_shrubs_sitelat.png",dpi=300,h=10,w=10)
+ggsave("FinalFigures/figure8_grams_shrubs_sitelat.png",dpi=300,h=10,w=10)
 ### end sitelat driver ###
 ##### End shrubs #####
 

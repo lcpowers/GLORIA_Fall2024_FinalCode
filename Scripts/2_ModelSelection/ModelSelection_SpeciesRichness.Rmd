@@ -1,0 +1,216 @@
+---
+title: "ModelSelection_SpeciesRichness"
+output: html_document
+date: "2026-10-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list=ls())
+
+### Packages
+library(tidyverse)
+library(lme4)
+library(MuMIn)
+library(rje)
+library(parallel)
+library(forcats)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(performance)
+
+### Read in and clean data
+dats.orig = read_csv('Data/AnalysisData/specieslevel_analysisdata_final.csv')
+
+dats=dats.orig |>
+  drop_na(climPC1,climPC2) |>  # only drop site groups missing climate PCs -- keep everything else unfiltered,
+  # unlike the species cover models (no abs(changecover)<=20 filter, no drop_na on lat range cols -- that drops Draba heilii)
+  filter(startcover!=0|endcover!=0) |>  # remove cases where a species did not have start or end cover
+  mutate(parksummit = paste(park,summit,sep="."),
+         PSaspect = paste(park,summit,aspect,sep=".")) |>
+  select( -c(family,genus,species,perenneating,leaves,habit,taxunit,starts_with("lat"),expanded,contracted,nochange) )
+names(dats)
+
+mod.dats <- dats |>
+  group_by(park,summit,aspect,transition,startyear) |>
+  mutate(start.nspp = n_distinct(sciname[which(startcover > 0)]),
+         end.nspp = n_distinct(sciname[which(endcover > 0)]),
+         change.nspp = end.nspp - start.nspp,
+         gains = n_distinct(sciname[which(startcover == 0 & endcover > 0)]),
+         losses = n_distinct(sciname[which(startcover > 0 & endcover == 0)])) |>
+  select(-c(sciname,startcover,endcover,changecover,propchangecover,startcover0,endcover0,no0)) |>
+  unique()
+names(mod.dats)
+table(mod.dats$park,mod.dats$summit)
+
+mod.dats$park = factor(mod.dats$park,levels=c("GNP","YNP","RMN","GSD","PEC"))
+```
+
+## Direction test: did richness change overall, and by park?
+```{r direction_test}
+
+dir.mod = lmer(change.nspp ~ 1 + (1|PSaspect) + (1|transition),
+                  na.action = "na.fail",data = mod.dats,REML = TRUE)
+summary(dir.mod)
+
+park.mod = lmer(change.nspp ~ 0 + park + (1|PSaspect) + (1|transition),
+                  na.action = "na.fail",data = mod.dats,REML = TRUE)
+summary(park.mod)
+
+```
+
+## Gains and losses
+```{r gains_losses}
+
+gl.dats = mod.dats |>
+  select(park,summit,aspect,PSaspect,transition,gains,losses) |>
+  pivot_longer(cols=c(gains,losses),names_to="type",values_to="count") |>
+  mutate(type = factor(type,levels=c("gains","losses")))
+
+mean(mod.dats$gains); mean(mod.dats$losses)
+
+gl.mod = glmer(count ~ type + (1|PSaspect) + (1|transition),
+                  na.action = "na.fail",data = gl.dats,family = poisson)
+summary(gl.mod)
+check_overdispersion(gl.mod)
+
+```
+
+Vascular plant cover models have very few predictor variables, so model selection is much simpler
+- Fixed effects are start richness, climate variables, and site latitude -- here
+- Park is left out of driver models (not just here): within-park SD of sitelat is 0.003-0.17 degrees, so sitelat and park are nearly redundant, and sitelat is the finer-grained of the two
+- Random effect options are PSaspect and transition
+```{r REstructure}
+
+### Compare RE options with a fully saturated FE structure
+
+# PS aspect random slope
+mod1 = lmer(end.nspp~start.nspp*(climPC1+climPC2+sitelat) + (1|PSaspect),
+                  na.action = "na.fail",data = mod.dats,REML = TRUE)
+
+# transition as random slope
+mod2 = lmer(end.nspp~start.nspp*(climPC1+climPC2+sitelat) + (1|transition),
+                  na.action = "na.fail",data = mod.dats,REML = TRUE)
+
+# both as random slopes
+mod3 = lmer(end.nspp~start.nspp*(climPC1+climPC2+sitelat) + (1|PSaspect) + (1|transition),
+                  na.action = "na.fail",data = mod.dats,REML = TRUE)
+
+# Compare AICc values
+mod.compare = AICc(mod1,mod2,mod3) |> mutate(delta = AICc-min(AICc)) |> arrange(delta)
+mod.compare
+
+##### Refit the best RE structure above with ML and dredge
+mod2.ML = lmer(end.nspp~start.nspp*(climPC1+climPC2+sitelat) + (1|transition),
+                  na.action = "na.fail",data = mod.dats,REML = F)
+
+## Dredge the model that was refit with maximum likelihood
+mod2.dredge = dredge(mod2.ML,beta = c("none"),fixed = c('start.nspp'),trace=2)
+
+##### Pull best model from dredge #####
+best.PC.mod = get.models(mod2.dredge,subset = 1)[[1]]
+best.PC.mod@call
+
+rm(mod1,mod2,mod3,mod2.dredge,mod2.ML)
+```
+
+
+Sub in climate vars for climPC1
+
+3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
+```{r best.clim.vars, warning=FALSE}
+
+# Create climate variable variable groups
+val = c("min","max","mean")
+tmean.grp = append(paste0(val,".tmean"),NA)
+snow.gdd.grp = append(c(paste0(val,".gdd"),paste0(val,".snowdays")),NA)
+ppt.grp = append(paste0(val,".gs.ppt"),NA)
+cwd.grp =  append(c(paste0(val,".aet"),paste0(val,".pet"),paste0(val,".wy.ppt")),NA)
+rm(val)
+
+# to see number of combinations (the "." placeholder below needs %>%, not |>)
+clim.combos.df = expand_grid(tmean.grp,snow.gdd.grp,ppt.grp,cwd.grp) %>% filter(rowSums(is.na(.))!=ncol(.))
+
+climVar.generic.mod = "end.nspp~start.nspp*(tmean.var + cwd.var + ppt.var + snow.gdd.var + sitelat) + (1|transition)"
+
+# In each iteration, a single climate variable from each group is subbed in for the generic climate variables above (i.e., tmean.var is swapped out for mean.tmean). That model is then fit with ML (not REML) and the AIC value is stored in the output table for comparison once the loops are finished running
+
+# Store results
+clim.mod.AICs = NULL
+
+for(i in 1:nrow(clim.combos.df)){
+
+  tmean.i = clim.combos.df$tmean.grp[i]
+  cwd.i = clim.combos.df$cwd.grp[i]
+  ppt.i = clim.combos.df$ppt.grp[i]
+  snow.gdd.i = clim.combos.df$snow.gdd.grp[i]
+
+  # If all clim vals are NA skip to next loop
+  if(is.na(tmean.i)&is.na(cwd.i)&is.na(ppt.i)&is.na(snow.gdd.i)) next
+
+  clim.mod.i = climVar.generic.mod
+
+  # either remove tmean.var or replace with specific tmean variable name. Repeat the same process for all other clim variable groups
+  if(is.na(tmean.i)) {clim.mod.i = gsub(pattern = "tmean.var + ",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "tmean.var",replacement = tmean.i,x = clim.mod.i)}
+
+  if(is.na(cwd.i)) {clim.mod.i = gsub(pattern = "cwd.var + ",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "cwd.var",replacement = cwd.i,x = clim.mod.i)}
+
+  if(is.na(ppt.i)) {clim.mod.i = gsub(pattern = "ppt.var + ",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "ppt.var",replacement = ppt.i,x = clim.mod.i)}
+
+  if(is.na(snow.gdd.i)) {clim.mod.i = gsub(pattern = " + snow.gdd.var",replacement = "", x = clim.mod.i, fixed = T)
+  }else{clim.mod.i = gsub(pattern = "snow.gdd.var",replacement = snow.gdd.i,x = clim.mod.i)}
+
+  out_df = data.frame(tmean.var = tmean.i,
+              snow.gdd.var = snow.gdd.i,
+              ppt.var = ppt.i,
+              cwd.var = cwd.i,
+              mod.str = clim.mod.i)
+
+  # Fit in LMER
+  mod.fit.i = lmer(formula = clim.mod.i, data = mod.dats, REML = FALSE, na.action = "na.fail")
+
+  out_df$AICc=AICc(mod.fit.i)
+  out_df$condR2 = r2(mod.fit.i)[[1]]
+  out_df$margR2 = r.squaredGLMM(mod.fit.i)[[2]]
+
+  clim.mod.AICs = rbind(clim.mod.AICs,out_df)
+  rm(out_df,clim.mod.i)
+
+}
+
+## add a delta AIC column
+clim.mod.AICs$delta = clim.mod.AICs$AICc-min(clim.mod.AICs$AICc)
+
+## Pull out model string for model with lowest AIC
+best.ExplClimVar.mod.str <- clim.mod.AICs$mod.str[clim.mod.AICs$delta==0]
+
+## Fit that model again and put in global env
+best.ExplClimVar.mod = lmer(best.ExplClimVar.mod.str, data = mod.dats, REML = FALSE, na.action = "na.fail")
+
+## Dredge that model
+dredge.climVar.mod = dredge(best.ExplClimVar.mod,beta = c("none"),fixed = c('start.nspp'),trace=2)
+
+## Pull out best model from dredge and refit with REML for parameter estimates
+best.climVar.mod = get.models(dredge.climVar.mod,subset=1)[[1]]
+best.climVar.mod@call
+
+final.climVar.mod = best.climVar.mod
+summary(final.climVar.mod)
+
+## Compare to start richness only, as a baseline
+start.only.mod = lmer(end.nspp~start.nspp + (1|transition), data = mod.dats, REML = FALSE, na.action = "na.fail")
+AICc(final.climVar.mod,start.only.mod)
+
+```
+
+
+```{r}
+sjPlot::plot_model(final.climVar.mod,type = "pred")
+```

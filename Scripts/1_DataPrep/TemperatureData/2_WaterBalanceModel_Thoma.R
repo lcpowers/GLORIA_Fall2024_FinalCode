@@ -32,18 +32,9 @@ for(i in prism_files){
 rm(prism_files,i)
 
 # Site characteristics 
-# sites = read.csv("C:/Users/adillon/Documents/RSS/CONG/WB/CONG_site_characteristics.csv") #CSV file containing properties for all sites
 
 ### Read in David's site info csv
-siteinfo = read_csv("./Data/siteInfo/summitcoordinates.csv") %>% select(summit,elev,startdate,enddate)
-wb_sites = read_xlsx("./Data/climate/daymet/sites.xlsx") %>% 
-  mutate(park=str_sub(site,1,3),
-         summit=str_sub(site,5,7),
-         aspectDeg=aspect,
-         aspect=str_sub(site,9,9),
-         WB_site=paste(summit,aspect,sep="_")) 
-
-wb_sites = merge(wb_sites,siteinfo,by="summit")
+wb_sites = read_csv("Data/siteInfo/wbmodel_siteinfo.csv")
 
 n<-nrow(wb_sites)
 #Threshold temperature (deg C) for growing degree-days calculation

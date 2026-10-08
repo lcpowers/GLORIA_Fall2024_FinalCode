@@ -16,8 +16,7 @@ vascCover = specCover %>%
   group_by(park,summit,aspect,year,plot) %>% 
   summarise(plotCover=sum(cover),.groups="drop") %>% 
   group_by(park,summit,aspect,year) %>% 
-  summarise(totalCover=sum(plotCover),
-         meanCover=mean(plotCover),.groups="drop") 
+  summarise(totalCover=sum(plotCover),.groups="drop") 
 vascCover$park <- factor(vascCover$park,levels = parks_ns)
 vascCover$aspect <- factor(vascCover$aspect,levels = c("N","S","E","W"))
 
@@ -35,13 +34,11 @@ for(s in summits){
     
     tmp2 = filter(tmp1,year==summit.yrs[i]) %>% 
       rename(startyear = year,
-             start.plantCover=totalCover,
-             start.meanCover=meanCover)
+             start.plantCover=totalCover)
     
     tmp3 = filter(tmp1,year==summit.yrs[i+1])%>% 
       rename(endyear = year,
-             end.plantCover=totalCover,
-             end.meanCover=meanCover)
+             end.plantCover=totalCover)
     
     tmp.out = merge(tmp2,tmp3,all = T) %>% 
       mutate(transition = paste0(s,i))

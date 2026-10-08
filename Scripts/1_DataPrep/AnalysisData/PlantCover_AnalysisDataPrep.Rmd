@@ -326,7 +326,12 @@ spp_df = read_csv("Data/AnalysisData/specieslevel_analysisdata_final.csv") %>%
   select(park,summit,aspect,startyear,climPC1,climPC2,contains(c("gdd","snowdays","aet","pet",".gs.",".wy."))) %>% 
   unique()
 
-all_parks_WBdata = merge(all_parks,spp_df,by=c("park","summit","aspect","startyear"))
+## all.x=T: keep every quadrat row even if no species were ever recorded there
+## (e.g. GNP SWD-west, which has real near-zero cover data but no climate
+## to borrow here since specieslevel_analysisdata_final.csv has no rows for
+## a summit-aspect with zero species). Those rows keep NA climate columns
+## instead of silently disappearing.
+all_parks_WBdata = merge(all_parks,spp_df,by=c("park","summit","aspect","startyear"),all.x=T)
 
 write_csv(all_parks_WBdata,"Data/AnalysisData/vascplantcover_final.csv")
 ```

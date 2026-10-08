@@ -57,7 +57,7 @@ int_vars = c("PSaspect","transition","sciname")
 r_ints = powerSet(int_vars)
 
 # Random slope candidate variables
-slope_vars = c("latmean1090","climPC1","climPC2")
+slope_vars = c("sitelat","climPC1","climPC2")
 r_slopes = powerSet(slope_vars) # all of these wrt sciname
 
 # Create dataframe to more easily see all combinations of random slopes and intercepts
@@ -122,7 +122,7 @@ for(i in 1:nrow(REcombos)){
 rm(r_ints,r_slopes,i,slope_vars,int_vars)
 
 REcombos$deltaAIC = REcombos$AICc-min(REcombos$AICc)
-# write_csv(REcombos,"Results/RandomEffects/modSelectionTable.csv")
+write_csv(REcombos,"Results/RandomEffects/RE_SelectionTable.csv")
 ```
 
 
@@ -169,12 +169,20 @@ starttime = Sys.time()
 3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
 ```{r best.clim.vars}
 
-top_mod <- read_csv("Results/top_dredge_results.csv") %>% 
-  filter(delta==0) %>% 
-  select_if(~ !any(is.na(.)))
+climPC.top = read_csv("climPCdredge_top10.csv") %>%
+  filter(delta==0)
 
-# names(top_mod)
-best.climPC.fe.mod = "endcover ~ startcover*(climPC1 + latmean1090 + I(latmean1090^2) + sitelat) + climPC2*perenneating + habit*climPC1 + habit*sitelat + (1 | transition) + (climPC1 + climPC2 | sciname)"
+# Reconstruct the winning formula from the saved dredge table itself, rather than
+# retyping it by hand: every column except (Intercept)/df/logLik/AICc/delta/weight
+# is a candidate FE term, and a non-NA value in the top row means that term was
+# in the best model.
+climPC.term.cols = setdiff(names(climPC.top), c("(Intercept)","df","logLik","AICc","delta","weight"))
+climPC.terms.in = climPC.term.cols[!is.na(unlist(climPC.top[1,climPC.term.cols]))]
+
+# climPC1/climPC2 win the random-slope search every time (confirmed empirically),
+# so that RE term is written in directly here, same as the dredge's own fixed= list.
+best.climPC.fe.mod.noRSs = paste0("endcover ~ ", paste(climPC.terms.in, collapse=" + "), " + (1 | transition)")
+best.climPC.fe.mod = paste0(best.climPC.fe.mod.noRSs, " + (climPC1 + climPC2 | sciname)")
 best.climPC.mod = lmer(formula = best.climPC.fe.mod,na.action =  "na.fail",data = dats.scaled,REML = F)
 summary(best.climPC.mod)
 
@@ -189,8 +197,6 @@ rm(val)
 climVar_param_grid <- expand_grid(tmean.grp,snow.gdd.grp,ppt.grp,cwd.grp) %>%
   filter(!if_all(everything(), is.na))
 
-best.climPC.fe.mod.noRSs = "endcover ~ startcover*(climPC1 + latmean1090 + I(latmean1090^2) + sitelat) + climPC2*perenneating + habit*climPC1 + habit*sitelat + (1 | transition)"
-
 climVar.generic.mod = "endcover ~ startcover*(tmean.var + cwd.var + ppt.var + snow.gdd.var + latmean1090 + I(latmean1090^2) + sitelat) + (tmean.var + cwd.var + ppt.var + snow.gdd.var)*perenneating + habit*(tmean.var + cwd.var + ppt.var + snow.gdd.var) + habit*sitelat + (1 | transition)"
 
 # In each iteration, a single climate variable from each group is subbed in for the generic climate variables above (i.e., tmean.var is swapped out for mean.tmean). That model is then fit with ML (not REML) and the AIC value is stored in the output table for comparison once the loops are finished running
@@ -200,7 +206,7 @@ climVar.generic.mod = "endcover ~ startcover*(tmean.var + cwd.var + ppt.var + sn
 cl = makeCluster(spec = 10)
 registerDoParallel(cl = cl)
 
-results_list <- foreach::foreach(i = 1:nrow(climVar_param_grid), .packages = c("tidyverse","data.table","lme4","performance") )%dopar%{
+results_list <- foreach::foreach(i = 1:nrow(climVar_param_grid), .packages = c("tidyverse","data.table","lme4","performance","MuMIn") )%dopar%{
   
   row.i <- climVar_param_grid[i,]
   
@@ -246,13 +252,13 @@ results_list <- foreach::foreach(i = 1:nrow(climVar_param_grid), .packages = c("
 
 }
 stopCluster(cl)
-#clim.mod.AICs <- rbindlist(results_list)
+clim.mod.AICs <- rbindlist(results_list)
 
-#clim.mod.AICs$delta = clim.mod.AICs$AICc - min(clim.mod.AICs$AICc)
-#clim.mod.AICs <- clim.mod.AICs %>% arrange(delta)
+clim.mod.AICs$delta = clim.mod.AICs$AICc - min(clim.mod.AICs$AICc)
+clim.mod.AICs <- clim.mod.AICs %>% arrange(delta)
 
-#best.ExplClimVar.mod.str <- clim.mod.AICs$mod.str[clim.mod.AICs$deltaAIC==0]
-#best.ExplClimVar.mod.str
+best.ExplClimVar.mod.str <- clim.mod.AICs$mod.str[clim.mod.AICs$delta==0]
+best.ExplClimVar.mod.str
 ```
 
 
@@ -275,7 +281,12 @@ REcombos = expand.grid(intercepts = r_ints,slopes = r_slopes,stringsAsFactors = 
 rm(int_vars,slope_vars,r_ints,r_slopes)
 
 ###### Full fixed effects model before any winnowing of FE variables #######
-basemod = best.ExplClimVar.mod.str = "endcover ~ startcover*(max.tmean + min.wy.ppt + min.gs.ppt + min.gdd + latmean1090 + I(latmean1090^2) + sitelat) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd)*perenneating + habit*sitelat + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd)*habit"
+# RE-less base model for the RE search below -- same winning climate variables
+# (max.tmean, min.wy.ppt, min.gs.ppt, min.gdd) as best.ExplClimVar.mod.str above,
+# just without its (1|transition) term, since the loop below builds its own RE terms.
+# Kept as its own variable rather than also overwriting best.ExplClimVar.mod.str,
+# which should keep meaning "stage 3's winning formula" for the rest of the script.
+basemod = "endcover ~ startcover*(max.tmean + min.wy.ppt + min.gs.ppt + min.gdd + latmean1090 + I(latmean1090^2) + sitelat) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd)*perenneating + habit*sitelat + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd)*habit"
 
 # List to store model objects in
 for(i in 1:nrow(REcombos)){

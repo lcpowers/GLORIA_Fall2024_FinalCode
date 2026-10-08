@@ -3,5 +3,9 @@
 .RData
 .Ruserdata
 .DS_Store
-/Data
+/Data/zipData
+/Data/climate
+/Data/IntermediateData
+/Data/speciesRanges
+/Data/vegetation
 /Old

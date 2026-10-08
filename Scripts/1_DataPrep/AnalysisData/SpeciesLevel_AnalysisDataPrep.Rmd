@@ -373,22 +373,36 @@ rm(startyr,endyr,years,summits,s,i,startcover,endcover,tmp,clim)
 ## Merge veg data together for all parks
 ```{r merge_all_veg}
 
-traits <- read_csv("./Data/speciesTraits/allparks_speclist_20220124 traits.csv") 
-siteinfo <- read_csv("./Data/IntermediateData/all_1x1veg_no0s_final.csv") %>% 
+traits <- read_csv("./Data/speciesTraits/allparks_speclist_20220124 traits.csv")
+siteinfo <- read_csv("./Data/IntermediateData/all_1x1veg_no0s_final.csv") %>%
   select(park,summit,aspect) %>% unique() %>% merge(.,siteinfo)
 
-all_parks <- rbind(gnp_Ts,gsd_Ts,rmn_Ts,ynp_Ts,pec_Ts) %>% 
-  filter(!str_detect(sciname," sp$")) %>% 
-  merge(.,traits,by="sciname") %>% 
-  merge(.,siteinfo,by=c("summit","aspect")) %>% 
+# Site slope, from the water balance model site info table
+slopeinfo <- read_csv("./Data/siteInfo/wbmodel_siteinfo.csv") %>%
+  select(summit,aspect,slope)
+
+all_parks <- rbind(gnp_Ts,gsd_Ts,rmn_Ts,ynp_Ts,pec_Ts) %>%
+  filter(!str_detect(sciname," sp$")) %>%
+  merge(.,traits,by="sciname") %>%
+  merge(.,siteinfo,by=c("summit","aspect")) %>%
+  merge(.,slopeinfo,by=c("summit","aspect")) %>%
   merge(.,ranges,by="sciname",all.x=T) %>%
   mutate(changecover=(endcover-startcover),
-         propchangecover=changecover/(startcover+0.1)) %>%
-  select(park,summit,aspect,sitelat,siteelev,
+         propchangecover=changecover/(startcover+0.1),
+         # Binary versions of start/end cover, used to flag gains/losses
+         startcover0=as.numeric(startcover==0),
+         endcover0=as.numeric(endcover==0),
+         allcover0=as.numeric(startcover==0 & endcover==0),
+         no0=as.numeric(startcover>0 & endcover>0),
+         expanded=as.numeric(endcover>startcover),
+         contracted=as.numeric(endcover<startcover),
+         nochange=as.numeric(endcover==startcover)) %>%
+  select(park,summit,aspect,slope,sitelat,siteelev,
          sciname,family,genus,species,
          perenneating=perennating,leaves,habit,taxunit=tax_unit,
          transition,startyear,startcover,endyear,endcover,
          changecover,propchangecover,
+         startcover0,endcover0,allcover0,no0,expanded,contracted,nochange,
          latmin1090,latmax1090,latmean1090,latmedian1090,latrange1090,
          min.tmean,mean.tmean,max.tmean)
 

@@ -10,7 +10,6 @@ library(data.table)
 library(readxl)
 
 # Files are referenced with the current working directory set to the level of the directory containing "GLORIA_Fall2024_FinalCode.Rproj"
-setwd("~/Desktop/CurrentProjects/GLORIA_Fall2024_FinalCode")
 
 # Function to remove columns with all NAs
 not_all_na <- function(x) any(!is.na(x))
@@ -121,44 +120,71 @@ write_csv(veg_all,paste0("./Data/IntermediateData/all_1x1veg_no0s_final.csv"))
 # spec_list <- read_csv("./Data/speciestraits/allparks_speclist_20220124 traits.csv")
 # 
 
-# Expand the vegetation data to include meaningful zeros. 
+# Expand the vegetation data to include meaningful zeros.
 # Criteria to add in 0-values:
 # - Species occurs on summit 's' at some point in the study period, but was not recorded in quadrat.
+# - The quadrat (summit-aspect-plot-year) was actually surveyed that year.
+#
+# A naive expand.grid(plot,year) over every plot and year a summit-aspect has ever
+# had creates phantom quadrat-years for plots that were skipped some years (e.g. GSD
+# 2009 quadrats 13/31, or GNP DGL quadrat N13 before 2019). Those need to stay NA/absent,
+# not get zero-filled as if they were surveyed and empty. The GLORIA surface cover data
+# records every actual quadrat visit (including true zero-vascular-cover visits), so it
+# is used here as the ground truth for which quadrat-years were really surveyed.
+
+## Quadrat visit log: one row per summit-aspect-plot-year actually surveyed ##
+visits_gnp = read_csv("./Data/vegetation/GLAC_GLORIA_Data_For_CU/GLAC_coverType_allYears.csv") %>%
+  filter(!is.na(vascPlant)) %>%
+  mutate(park="GNP",aspect=str_sub(plot,1,1)) %>%
+  select(park,summit,aspect,plot,year)
+
+visits_others = read_csv("Data/vegetation/NPS_GLORIA_Veg_2297334_DataPackage/NPS_IMD_GLORIA_Vegetation_2297334_SurfaceCover1x1.csv") %>%
+  select(park=Park,summit=Summit,year=Year,plot=Plot,aspect=PlotAspect,vascPlantCover=SurfaceVascPlant) %>%
+  filter(!is.na(vascPlantCover)) %>%
+  # Same pilot-year exclusions applied to veg_4parks above: these summit-years are
+  # preliminary/incomplete surveys, not part of the real transition sequence, even
+  # though the surface cover source still has rows for them.
+  filter(!(summit=="GLA"&year==2009)) %>%
+  filter(!(summit%in%c("VQS","PIK","JSM")&year%in%c(2009,2011)))
+
+# Same GSD 2018->2015 data-entry fix applied to the veg data above
+visits_others$year[visits_others$summit=="HUK"&visits_others$year==2018] = 2015
+
+quadrat_visits = bind_rows(visits_gnp,select(visits_others,-vascPlantCover))
+rm(visits_gnp,visits_others)
+
 summits = unique(veg_all$summit)
 all_1x1veg = NULL
 
 for(s in summits){
-  
+
   # Filter full dataset for the current summit
   tmp.s = filter(veg_all,summit==s)
-  
+
   # aspects surveyed across the study period on this summit
   aspects = unique(tmp.s$aspect)
-  
+
   # species found across the study period on this summit
   spp = unique(tmp.s$sciname)
-  
+
   for(a in aspects){
-    
+
     tmp.s.a = filter(tmp.s,aspect==a) %>% # filter summit data to summit.aspect
-      group_by(park,summit,aspect,plot,sciname,year) %>% 
+      group_by(park,summit,aspect,plot,sciname,year) %>%
       summarise(cover = sum(cover), .groups = "drop") # This deals with instances of when a species was recorded more than once in the same plot
-    
-    years = unique(tmp.s.a$year)
-    plots = unique(tmp.s.a$plot)
-    
-    tmp.expand = expand.grid(park=unique(tmp.s$park),
-                             summit=s,
-                             year=years,
-                             aspect=a,
-                             plot=plots,
-                             sciname=spp)
-    
+
+    # Quadrat-years actually surveyed for this summit-aspect (not just plots/years
+    # that happened to be surveyed at some point, crossed with each other)
+    visited.s.a = filter(quadrat_visits,summit==s,aspect==a) %>%
+      distinct(park,summit,aspect,plot,year)
+
+    tmp.expand = merge(visited.s.a,data.frame(sciname=spp))
+
     tmp.s.a.out = merge(tmp.s.a,tmp.expand,by=c("park","summit","year","aspect","sciname","plot"),all=T)
     tmp.s.a.out$cover = replace_na(tmp.s.a.out$cover,0)
-    
+
     all_1x1veg = rbind(all_1x1veg,tmp.s.a.out)
-    
+
     } # End aspect loop
 } # End summit loop
 

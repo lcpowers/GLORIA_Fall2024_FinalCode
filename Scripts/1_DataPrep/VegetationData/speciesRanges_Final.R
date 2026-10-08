@@ -6,7 +6,7 @@ speclist <- read_csv("./Data/speciesTraits/allparks_speclist_20220124 traits.csv
 
 not_all_na <- function(x) any(!is.na(x))
 
-# Read in data downloaded from idigbio. Most recent download on Feb 2
+# Read in data downloaded from idigbio. Most recent download on Feb 2 2022
 idigbio <- read_csv("./Data/speciesRanges/idigbio_2022-02-02/occurrence_raw.csv")%>%
   select(where(not_all_na))
 
@@ -18,9 +18,9 @@ idigbiofltr <- idigbio %>%
          continent=`dwc:continent`,
          countrycode = `dwc:countryCode`)
 
-write_csv(idigbiofltr, "./../Data/speciesRanges/filtered_specRanges.csv")
+write_csv(idigbiofltr, "Data/speciesRanges/filtered_specRanges.csv")
 
-# After writing the above CSV, the points were read into QGIS and clipped using a shapefile of North America (downloaded from Princeton)
+# After writing the above CSV, the points were read into QGIS and clipped using a shapefile of North America
 
 tetra = read_csv("./Data/speciesRanges/tetraneuris.csv")%>%
   select(sciname=`dwc:scientificName`,
@@ -87,7 +87,7 @@ for(sp in species){
   if(nrow(df1090)>0){
     spp_range_summ$latmin1090[spp_range_summ$sciname==sp] = min(df1090$lat,na.rm = T)
     spp_range_summ$latmax1090[spp_range_summ$sciname==sp] = max(df1090$lat,na.rm = T)
-    spp_range_summ$latrange1090[spp_range_summ$sciname==sp] = max(df1090$lat,na.rm = T)-min(df$lat,na.rm = T)
+    spp_range_summ$latrange1090[spp_range_summ$sciname==sp] = max(df1090$lat,na.rm = T)-min(df1090$lat,na.rm = T)
     spp_range_summ$latmean1090[spp_range_summ$sciname==sp] = mean(df1090$lat,na.rm = T)
     spp_range_summ$latmedian1090[spp_range_summ$sciname==sp] = median(df1090$lat,na.rm = T)
     spp_range_summ$n_obs1090[spp_range_summ$sciname==sp] = nrow(df1090)
@@ -98,4 +98,4 @@ for(sp in species){
   
 }
 
-write_csv(spp_range_summ,"./Data/IntermediateData/species_range_summary.csv")
+write_csv(spp_range_summ,"Data/IntermediateData/species_range_summary.csv")
