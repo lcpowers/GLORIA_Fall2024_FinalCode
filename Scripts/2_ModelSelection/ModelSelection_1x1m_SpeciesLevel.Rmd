@@ -133,36 +133,38 @@ Refit best RE model using ML + dredge to find the most important fixed effects
 # Get string of best model
 climPC.RE.mod = REcombos$mod_string[which.min(REcombos$AICc)]
 climPC.RE.mod 
-# "endcover~startcover*(latmean1090+I(latmean1090^2)) + (startcover+latmean1090+I(latmean1090^2)+perenneating+leaves+habit)*(climPC1+climPC2+sitelat) + (1|transition) + (climPC1+climPC2 | sciname)"
 
 # Refit using ML rather than REML
-climPC.RE.mod.MLfit = lmer(formula = climPC.RE.mod,na.action =  "na.fail",data = dats.scaled,REML = FALSE)
+climPC.RE.mod.MLfit = lmer(formula = climPC.RE.mod,na.action =  "na.fail",data = dats.scaled,REML = FALSE,)
 climPC.RE.mod.MLfit
 starttime = Sys.time()
 
-# # Dredge this model
-# clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
-# clust <- try(makeCluster(getOption("cl.cores", 35), type = clusterType))
-# clusterEvalQ(clust, library(lme4))
-# clusterExport(clust,"dats.scaled")
-# 
-# climPC.RE.mod.dredge =  dredge(climPC.RE.mod.MLfit,
-#                         beta = c("none"),
-#                         fixed = c('startcover',"climPC1","climPC2"), # Fixing clim PC1 and clim PC2 because they are random slope terms
-#                         trace=2,
-#                         subset = dc(latmean1090,I(latmean1090^2)),
-#                         cluster = clust)
-# 
-# stopCluster(clust)
-# rm(clust)
-# 
-# climPC.RE.mod.dredge.fltr = filter(climPC.RE.mod.dredge,delta<1)
-# write_csv(as.data.frame(climPC.RE.mod.dredge.fltr),"climPC dredge results.csv")
-# 
-# 
-#
-# best.climPC.fe.mod = get.models(climPC.RE.mod.dredge.fltr,subset = 1)[[1]]
+# Dredge this model
+clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
+clust <- try(makeCluster(getOption("cl.cores", 35), type = clusterType))
+clusterEvalQ(clust, library(lme4))
+clusterExport(clust,"dats.scaled")
+
+climPC.RE.mod.dredge =  dredge(climPC.RE.mod.MLfit,
+                        beta = c("none"),
+                        fixed = c('startcover',"climPC1","climPC2"), # Fixing clim PC1 and clim PC2 because they are random slope terms
+                        trace=2,
+                        subset = dc(latmean1090,I(latmean1090^2)),
+                        cluster = clust)
+
+stopCluster(clust)
+rm(clust)
+
+top10.climPC.fe.mods = get.models(climPC.RE.mod.dredge.fltr,subset = 1:10)[[1]]
+best.climPC.fe.mod = get.models(climPC.RE.mod.dredge.fltr,subset = 1)[[1]]
+
+saveRDS(object = list(bestMod = best.climPC.fe.mod,top10.climPC.fe.mods = top10.climPC.fe.mods))
+
 # best.climPC.fe.mod@call
+
+climPC.RE.mod.dredge.fltr = as.data.frame(climPC.RE.mod.dredge) %>% filter(delta<2)
+
+write_csv(as.data.frame(climPC.RE.mod.dredge.fltr),"climPC dredge results.csv")
 ```
 
 
