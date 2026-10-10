@@ -135,7 +135,7 @@ climPC.RE.mod = REcombos$mod_string[which.min(REcombos$AICc)]
 climPC.RE.mod 
 
 # Refit using ML rather than REML
-climPC.RE.mod.MLfit = lmer(formula = climPC.RE.mod,na.action =  "na.fail",data = dats.scaled,REML = FALSE,)
+climPC.RE.mod.MLfit = lmer(formula = climPC.RE.mod,na.action =  "na.fail",data = dats.scaled,REML = FALSE)
 climPC.RE.mod.MLfit
 starttime = Sys.time()
 
@@ -155,16 +155,16 @@ climPC.RE.mod.dredge =  dredge(climPC.RE.mod.MLfit,
 stopCluster(clust)
 rm(clust)
 
-top10.climPC.fe.mods = get.models(climPC.RE.mod.dredge.fltr,subset = 1:10)[[1]]
-best.climPC.fe.mod = get.models(climPC.RE.mod.dredge.fltr,subset = 1)[[1]]
+best.climPC.fe.mod = get.models(climPC.RE.mod.dredge,subset = 1)[[1]]
+top10.climPC.fe.mods = get.models(climPC.RE.mod.dredge,subset = 1:10)
 
-saveRDS(object = list(bestMod = best.climPC.fe.mod,top10.climPC.fe.mods = top10.climPC.fe.mods))
+saveRDS(object = list(bestMod = best.climPC.fe.mod,top10.climPC.fe.mods = top10.climPC.fe.mods),
+        file = "climPC_models.rds")
 
 # best.climPC.fe.mod@call
 
 climPC.RE.mod.dredge.fltr = as.data.frame(climPC.RE.mod.dredge) %>% filter(delta<2)
-
-write_csv(as.data.frame(climPC.RE.mod.dredge.fltr),"climPC dredge results.csv")
+write_csv(climPC.RE.mod.dredge.fltr,"climPC dredge results.csv")
 ```
 
 
