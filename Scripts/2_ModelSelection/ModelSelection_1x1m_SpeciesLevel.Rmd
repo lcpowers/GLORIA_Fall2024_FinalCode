@@ -171,8 +171,8 @@ write_csv(climPC.RE.mod.dredge.fltr,"climPC dredge results.csv")
 3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
 ```{r best.clim.vars}
 
-climPC.top = read_csv("climPCdredge_top10.csv") %>%
-  filter(delta==0)
+best.climPC.mods <- readRDS("climPC_models.rds")
+climPC.top = best.climPC.mods$bestMod
 
 # Reconstruct the winning formula from the saved dredge table itself, rather than
 # retyping it by hand: every column except (Intercept)/df/logLik/AICc/delta/weight
