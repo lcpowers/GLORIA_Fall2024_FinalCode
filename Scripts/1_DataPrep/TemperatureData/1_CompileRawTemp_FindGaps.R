@@ -21,7 +21,7 @@ library(visdat)
 #     separate(Site,c("summit","aspect"),remove=F) %>%
 #     separate(Date,c("year","month","day"),remove=F) %>%
 #     mutate(park="GNP") %>%
-#     select(park,summit,aspect,date=Date,year,month,day,time=Time,tempC=`Temp C`)
+#    dplyr::select(park,summit,aspect,date=Date,year,month,day,time=Time,tempC=`Temp C`)
 # 
 #   gnp_temp_data <- rbind(gnp_temp_data,tmp)
 #   rm(tmp)
@@ -41,7 +41,7 @@ gnp_temp_data$plot <- gnp_temp_data$aspect
 # Read in temp data for GRSD, ROMO, Yell, and PECO
 temp_data <- read_csv("./Data/climate/NPS_IMD_GLORIA_SoilTemperature_2288176_DataPackage_UPDATED_Pecos/NPS_IMD_GLORIA_SoilTemperature_2288176_Raw-dataset.csv") %>% 
   mutate(aspect=str_sub(Plot,1,1)) %>%      # Create an aspect column using substring of the plot column
-  select(park=Park,summit=Summit,plot=Plot,aspect,datetime=DateTime,tempC=Value) %>% # rename columns to be all lower case
+ dplyr::select(park=Park,summit=Summit,plot=Plot,aspect,datetime=DateTime,tempC=Value) %>% # rename columns to be all lower case
   separate(datetime,c('date','time'),sep=" ") # separate components (date and time) of datetime column
 temp_data$date <- as.Date(temp_data$date) # Convert date column to date format
 
@@ -63,7 +63,7 @@ all_raw_temp_data$year=as.numeric(all_raw_temp_data$year)
 rm(temp_data,gnp_temp_data,gnp_temp_files)
 
 # Write csv of compiled raw temp data
-# write_csv(all_raw_temp_data,"./Data/IntermediateData/rawTemp_all.csv")
+write_csv(all_raw_temp_data,"./Data/IntermediateData/rawTemp_all.csv")
 
 ####### Find temperature gaps ######
 all_raw_temp_data$park <- as.factor(all_raw_temp_data$park)
@@ -132,7 +132,7 @@ peco <- filter(dailyT_alldates,park=="PEC")
 # Number of missing days per year
 romo_table <- table(romo$year, as.character(romo$summit),as.character(romo$aspect),romo$n_obs) %>% as.data.frame() %>% 
   filter(Var4==0) %>% 
-  select(-Var4)
+ dplyr::select(-Var4)
 colnames(romo_table) <- c("year","summit","aspect","n_missing")
 romo_wide_table <- pivot_wider(data = romo_table,
                                id_cols = c(year,aspect),
@@ -149,7 +149,7 @@ ggplot(subset(romo,summit=="VQS"),aes(x=date,y=n_obs,color=n_obs))+
 ##### Yellowstone #####
 yell_table <- table(yell$year,as.character(yell$summit),as.character(yell$aspect),yell$n_obs) %>% as.data.frame() %>% 
   filter(Var4==0) %>% 
-  select(-Var4)
+ dplyr::select(-Var4)
 colnames(yell_table) <- c("year","summit","aspect","n_missing")
 yell_wide_table <- pivot_wider(data = yell_table,
                                id_cols = c(year,aspect),
@@ -167,7 +167,7 @@ ggplot(yell, aes(x=date,y=n_obs,color=n_obs))+
 ##### Great Sand Dunes #####
 grsd_table <- table(grsd$year,as.character(grsd$summit),as.character(grsd$aspect),grsd$n_obs) %>% as.data.frame() %>% 
   filter(Var4==0) %>% 
-  select(-Var4) %>% 
+ dplyr::select(-Var4) %>% 
   filter(!Var3%in%c("HSP","NW","SW","SE","C"))
 colnames(grsd_table) <- c("year","summit","aspect","n_missing")
 grsd_wide_table <- pivot_wider(data = grsd_table,
@@ -186,7 +186,7 @@ ggplot(grsd, aes(x=date,y=n_obs,color=n_obs))+
 ###### Glacier #######
 glac_table <- table(glac$year,as.character(glac$summit),as.character(glac$aspect),glac$n_obs) %>% as.data.frame() %>% 
   filter(Var4==0) %>% 
-  select(-Var4)
+ dplyr::select(-Var4)
 colnames(glac_table) <- c("year","summit","aspect","n_missing")
 glac_wide_table <- pivot_wider(data =glac_table,
                                id_cols = c(year,summit),
@@ -204,7 +204,7 @@ ggplot(glac, aes(x=date,y=n_obs,color=n_obs))+
 ###### Pecos ######
 peco_table <- table(peco$year,as.character(peco$summit),as.character(peco$aspect),peco$n_obs) %>% as.data.frame() %>% 
   filter(Var4==0) %>% 
-  select(-Var4)
+ dplyr::select(-Var4)
 colnames(peco_table) <- c("year","summit","aspect","n_missing")
 peco_wide_table <- pivot_wider(data = peco_table,
                                id_cols = c(year,summit),
