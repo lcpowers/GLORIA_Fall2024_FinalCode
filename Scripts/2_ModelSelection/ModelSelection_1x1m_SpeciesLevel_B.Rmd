@@ -164,17 +164,17 @@ best.climPC.fe.mod = get.models(climPC.RE.mod.dredge,subset = 3)[[1]]
 top10.climPC.fe.mods = get.models(climPC.RE.mod.dredge,subset = 1:10)
 
 saveRDS(object = list(bestMod = best.climPC.fe.mod,top10.climPC.fe.mods = top10.climPC.fe.mods),
-        file = "climPC_models_B.rds")
+        file = "Results/climPC_models_B.rds")
 
 # best.climPC.fe.mod@call
 
 climPC.RE.mod.dredge.fltr = as.data.frame(climPC.RE.mod.dredge) %>% dplyr::slice_head(n=50)
-write_csv(climPC.RE.mod.dredge.fltr,"climPC_dredge_results_B.csv")
+write_csv(climPC.RE.mod.dredge.fltr,"Results/climPC_dredge_results_B.csv")
 ```
 
 ```{r}
-model_a <- readRDS("climPC_models.rds")[[1]]
-model_b <- readRDS("climPC_models_B.rds")[[1]]
+model_a <- readRDS("Results/climPC_models.rds")[[1]]
+model_b <- readRDS("Results/climPC_models_B.rds")[[1]]
 
 sjPlot::plot_models(model_a,model_b)
 ```
@@ -183,7 +183,7 @@ sjPlot::plot_models(model_a,model_b)
 3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
 ```{r best.clim.vars}
 
-best.climPC.mods <- readRDS("climPC_models.rds")
+best.climPC.mods <- readRDS("Results/climPC_models_B.rds")
 best.climPC.mod = best.climPC.mods$bestMod
 summary(best.climPC.mod)
 
@@ -388,11 +388,11 @@ top10.climVar.mods = get.models(best.explClimVar.RE.mod.dredge,subset = 1:10)
 
 saveRDS(object = list(best.climVar.Mod = best.climVar.mod,
                       top10.climVar.mods = top10.climVar.mods),
-        file = "climVar_models.rds")
+        file = "Results/climVar_models_B.rds")
 
 climVar.mod.dredge.fltr = as.data.frame(best.explClimVar.RE.mod.dredge) %>% 
   slice_head(n = 100)
-write_csv(climVar.mod.dredge.fltr,"climVar dredge results.csv")
+write_csv(climVar.mod.dredge.fltr,"Results/climVar_dredge_results_B.csv")
 
 rm(climPC.RE.mod.dredge)
 

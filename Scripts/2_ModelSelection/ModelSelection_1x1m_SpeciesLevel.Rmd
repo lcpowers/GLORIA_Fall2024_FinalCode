@@ -159,19 +159,19 @@ best.climPC.fe.mod = get.models(climPC.RE.mod.dredge,subset = 1)[[1]]
 top10.climPC.fe.mods = get.models(climPC.RE.mod.dredge,subset = 1:10)
 
 saveRDS(object = list(bestMod = best.climPC.fe.mod,top10.climPC.fe.mods = top10.climPC.fe.mods),
-        file = "climPC_models.rds")
+        file = "Results/climPC_models.rds")
 
 # best.climPC.fe.mod@call
 
 climPC.RE.mod.dredge.fltr = as.data.frame(climPC.RE.mod.dredge) %>% filter(delta<2)
-write_csv(climPC.RE.mod.dredge.fltr,"climPC dredge results.csv")
+write_csv(climPC.RE.mod.dredge.fltr,"Results/climPC dredge results.csv")
 ```
 
 
 3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
 ```{r best.clim.vars}
 
-best.climPC.mods <- readRDS("climPC_models.rds")
+best.climPC.mods <- readRDS("Results/climPC_models.rds")
 best.climPC.mod = best.climPC.mods$bestMod
 summary(best.climPC.mod)
 
@@ -350,10 +350,8 @@ best.explClimVar.RE.mod
 
 5. Now dredge the model with the RE structure from above. RE clim vars must be fixed
 ```{r best_clim_mod_dredge}
-best.explClim.RE.mod = "endcover ~ startcover*(mean.tmean + mean.wy.ppt + mean.gs.ppt + mean.snowdays + latmean1090 + I(latmean1090^2) + sitelat) + (mean.tmean + mean.wy.ppt + mean.gs.ppt + mean.snowdays)*perenneating + habit*sitelat + (mean.tmean + mean.wy.ppt + mean.gs.ppt + mean.snowdays)*habit + (1 | transition) + (mean.tmean + mean.gs.ppt + mean.snowdays | sciname)"
-
 # Refit using ML rather than REML
-best.explClimVar.RE.mod.ML = lmer(formula = best.explClim.RE.mod ,na.action =  "na.fail",data = dats.scaled, REML = FALSE)
+best.explClimVar.RE.mod.ML = lmer(formula = best.explClimVar.RE.mod ,na.action =  "na.fail",data = dats.scaled, REML = FALSE)
 
 # Dredge this model
 clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
@@ -376,11 +374,11 @@ top10.climVar.mods = get.models(best.explClimVar.RE.mod.dredge,subset = 1:10)
 
 saveRDS(object = list(best.climVar.Mod = best.climVar.mod,
                       top10.climVar.mods = top10.climVar.mods),
-        file = "climVar_models.rds")
+        file = "Results/climVar_models.rds")
 
 climVar.mod.dredge.fltr = as.data.frame(best.explClimVar.RE.mod.dredge) %>% 
   slice_head(n = 100)
-write_csv(climVar.mod.dredge.fltr,"climVar dredge results.csv")
+write_csv(climVar.mod.dredge.fltr,"Results/climVar dredge results.csv")
 
 rm(climPC.RE.mod.dredge)
 

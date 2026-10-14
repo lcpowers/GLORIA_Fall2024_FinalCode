@@ -28,6 +28,7 @@ library(ggfortify)
 
 # parks north to south
 parks_ns = c("GNP","YNP","RMN","GSD","PEC")
+conflicted::conflicts_prefer(dplyr::select)
 ```
 
 ## Read in data

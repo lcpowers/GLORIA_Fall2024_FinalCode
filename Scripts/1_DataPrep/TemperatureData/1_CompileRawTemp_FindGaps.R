@@ -120,7 +120,7 @@ for(i in summits){
   rm(tmp_summit,tmp_date_range,tmp_aspect,tmp_full)
 
 }
-# write_csv(dailyT_alldates,"Data/IntermediateData/dailyT_unfilled.csv")
+write_csv(dailyT_alldates,"Data/IntermediateData/dailyT_unfilled.csv")
 
 romo <- filter(dailyT_alldates,park=="RMN"&aspect!="C") # 63335 rows (65941 rows with aspect=="C")
 yell <- filter(dailyT_alldates,park=="YNP") # 52547 rows

@@ -12,6 +12,8 @@ Packages
 library(tidyverse)
 library(MuMIn)
 library(reshape2)
+
+conflicted::conflicts_prefer(dplyr::select)
 ```
 
 Read in t mean model data
@@ -40,7 +42,7 @@ aspects <- c("N","S","E","W")
 GSD_nomissyr_df <- filter(GSD,!date%in%seq(as.Date('2013-09-18'),as.Date('2014-08-29'),by='days'))
 
 # This will store observed and predicted data in separate columns for reference
-predict_df <- GSD_nomissyr_df %>% dplyr::select(date,starts_with('tmean'))
+predict_df <- GSD_nomissyr_df %>% dplyr::select(date,!starts_with(c('PR.',"doy")))
 
 # This will store observed data and fill in NAs with predicted data in the same column
 filledNAs_df <- predict_df
@@ -77,7 +79,7 @@ for(i in summits){
     colnames(predict_df)[ncol(predict_df)] <- paste0("pred.tmean.",sum_asp)
     
     # Find column that contains observed t mean data for current sum*asp
-    colnum <- which(colnames(filledNAs_df)==paste0('pred.tmean.',sum_asp))
+    colnum <- which(colnames(filledNAs_df)==sum_asp)
     
     # Fill in NA values in the filledNAs_df
     for(rownum in 1:nrow(filledNAs_df)){
@@ -105,7 +107,7 @@ rm(filledNAs_df,predict_df)
 for(i in summits){
   for(j in aspects){
     
-    obs <- paste0('tmean.',i,"_",j)
+    obs <- paste0(i,"_",j)
     pred <- paste0('pred.tmean.',i,"_",j)
     print(ggplot(GSD_predict_df1,aes(x=eval(as.name(obs)),y=eval(as.name(pred))))+
       geom_point()+
@@ -122,11 +124,11 @@ for(i in summits){
 ```{r GRSDmissingyear}
 
 # This will store observed and predicted data in separate columns for reference
-predict_df <- GSD %>% select(date,starts_with('tmean'))
+predict_df <- GSD %>% dplyr::select(date,!starts_with(c('PR.',"doy")))
 
 GSD_missyr_df <- filter(GSD,date%in%seq(as.Date('2013-09-18'),as.Date('2014-08-29'),by='days'))
 
-GSD_missyr_filledNAs_df <- GSD_missyr_df %>% select(date,starts_with('tmean'))
+GSD_missyr_filledNAs_df <- GSD_missyr_df %>% dplyr::select(date,!starts_with(c('PR.',"doy")))
 
 for(i in summits){
   for(j in aspects){
@@ -139,11 +141,11 @@ for(i in summits){
     
     # Create model data.frame
     lm_df <- GSD %>%
-      select(paste0("tmean.",sum_asp),starts_with("PR."),doy,doysq) %>% 
+      dplyr::select(all_of(sum_asp),starts_with("PR."),doy,doysq) %>%
       na.omit()
-    
+
     # Create global model
-    tmp_lm <- lm(paste0("tmean.",i,"_",j, " ~ . + I(",PRcol,"^2) + I(",PRcol,"^3)"), data = lm_df,  na.action = "na.fail")
+    tmp_lm <- lm(paste0(i,"_",j, " ~ . + I(",PRcol,"^2) + I(",PRcol,"^3)"), data = lm_df,  na.action = "na.fail")
     
     # Dredge global model
     tmp_dredge <- dredge(global.model = tmp_lm, extra = "R^2",fixed="doy")
@@ -165,7 +167,7 @@ for(i in summits){
     missyr_predict_vec <- predict(object=best_model,GSD_missyr_df)
     
     # Find columm for current sum*asp
-    colnum <- which(colnames(GSD_missyr_filledNAs_df)==paste0('tmean.',sum_asp))
+    colnum <- which(colnames(GSD_missyr_filledNAs_df)==sum_asp)
     
     # Fill in NA values in the filledNAs_df
     for(rownum in 1:nrow(GSD_missyr_filledNAs_df)){
@@ -191,7 +193,7 @@ rm(predict_df)
 for(i in summits){
   for(j in aspects){
     
-    obs <- paste0('tmean.',i,"_",j)
+    obs <- paste0(i,"_",j)
     pred <- paste0('pred.tmean.',i,"_",j)
     print(ggplot(GSD_predict_df2,aes(x=eval(as.name(obs)),y=eval(as.name(pred))))+
       geom_point()+
@@ -213,7 +215,7 @@ parks <- c("RMN","YNP","GNP")
 for(park in parks){
   summits <- unique(dailyT$summit[dailyT$park==park]) %>% as.character()
   # Get full initial data.frame
-  predict_df <- eval(as.name(park)) %>% select(date,starts_with('tmean'))
+  predict_df <- eval(as.name(park)) %>% select(date,!starts_with(c('PR.',"doy")))
   filledNAs_df <- predict_df
   
   maxNA <- ifelse(park=="RMN",9,10)
@@ -222,7 +224,7 @@ for(park in parks){
     for(j in aspects){
       
       sum_asp <- paste0(i,"_",j)
-      dep_col <- paste0("tmean.",sum_asp)
+      dep_col <- sum_asp
       PRcol <- paste0("PR.tmean.",i)
       
       # Use to remove other summits prism columns
@@ -232,14 +234,14 @@ for(park in parks){
         select(-c(date)) %>% # get rid of date columns
         select(-c(paste0("PR.tmean.",othersummits))) %>% # remove other summits' prism data
         select(-contains("PR.tmin")) %>% # remove min Temp prism data
-        select(paste0('tmean.',sum_asp),which(colSums(is.na(.))<maxNA)) %>% 
+        select(all_of(sum_asp),which(colSums(is.na(.))<maxNA)) %>%
         na.omit()
 
       # GNP has a slightly different model. Use if else to tell loop which model to use based on park
       if(park=="GNP") {
         tmp_lm <- lm(formula = paste0(dep_col,' ~ . + I(',PRcol,'^2) + I(',PRcol,'^3)'),data = lm_df, na.action = "na.fail")
       } else {
-        tmp_lm <- lm(formula = paste0("tmean.",i,"_", j,' ~ . '),data = lm_df, na.action = "na.fail")
+        tmp_lm <- lm(formula = paste0(i,"_", j,' ~ . '),data = lm_df, na.action = "na.fail")
       }
 
       # dredge global model
@@ -257,7 +259,7 @@ for(park in parks){
 
       # Check that output_df has same number of rows (same days) as predict_vec
       # nrow(output_df)==length(predict_vec)
-      colnum <- which(colnames(filledNAs_df)==paste0('tmean.',sum_asp))
+      colnum <- which(colnames(filledNAs_df)==sum_asp)
 
       # Fill in NA values in the output_df
       for(rownum in 1:nrow(filledNAs_df)){
@@ -280,37 +282,29 @@ for(park in parks){
 ```{r finalmeanTdfs}
 
 GSD_final <- GSD_final_df %>% 
-  melt(id.vars="date") %>% 
+  reshape2::melt(id.vars="date") %>%
   separate(variable,c("summit","aspect"),sep = "_") %>%
-  separate(summit,c("x","summit")) %>% 
-  select(-x) %>% 
   mutate(park="GSD")
 colnames(GSD_final)[4] <- "tmean"
 write_csv(GSD_final,"./Data/IntermediateData/FilledTempData/GSD_meandailyT.csv")
 
 RMN_final <- RMN_filledNAs_df %>% 
-  melt(id.vars="date") %>% 
+  reshape2::melt(id.vars="date") %>%
   separate(variable,c("summit","aspect"),sep = "_") %>%
-  separate(summit,c("x","summit")) %>% 
-  select(-x) %>% 
   mutate(park="RMN")
 colnames(RMN_final)[4] <- "tmean"
 write_csv(RMN_final,"./Data/IntermediateData/FilledTempData/RMN_meandailyT.csv")
 
 YNP_final <- YNP_filledNAs_df %>% 
-  melt(id.vars="date") %>% 
+  reshape2::melt(id.vars="date") %>%
   separate(variable,c("summit","aspect"),sep = "_") %>%
-  separate(summit,c("x","summit")) %>% 
-  select(-x) %>% 
   mutate(park="YNP")
 colnames(YNP_final)[4] <- "tmean"
 write_csv(YNP_final,"./Data/IntermediateData/FilledTempData/YNP_meandailyT.csv")
 
 GNP_final <- GNP_filledNAs_df %>% 
-  melt(id.vars="date") %>% 
+  reshape2::melt(id.vars="date") %>%
   separate(variable,c("summit","aspect"),sep = "_") %>%
-  separate(summit,c("x","summit")) %>% 
-  select(-x) %>% 
   mutate(park="GNP")
 colnames(GNP_final)[4] <- "tmean"
 write_csv(GNP_final,"./Data/IntermediateData/FilledTempData/GNP_meandailyT.csv")

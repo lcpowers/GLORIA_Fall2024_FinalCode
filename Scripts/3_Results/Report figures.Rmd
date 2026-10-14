@@ -72,7 +72,7 @@ sppcover.orig = read_csv('Data/AnalysisData/specieslevel_analysisdata_final.csv'
 
 sppcover.unscaled=sppcover.orig %>% 
   drop_na(startcover,climPC1,climPC2,latmax1090,latmin1090,latmean1090,latmedian1090) %>% 
-  filter(abs(changecover)<=10) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
+  filter(abs(changecover)<=20) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
   filter(startcover+endcover!=0) %>%  # remove cases where a species did not have start and end cover
   mutate(parksummit = paste(park,summit,sep="."),
          PSaspect = paste(park,summit,aspect,sep="."),
@@ -96,31 +96,27 @@ sppcover.unscaled$changecover = sppcover.unscaled$endcover-sppcover.unscaled$sta
 rm(scale_cols)
 
 ## Models ##
-climPC.mod.str = "endcover ~ startcover*(climPC1 + latmean1090 + I(latmean1090^2) + sitelat) + climPC2*perenneating + habit*climPC1 + habit*sitelat + (1 | transition) + (climPC1 + climPC2 | sciname)"
-climPC.mod.s = lmer(formula = climPC.mod.str, na.action = "na.fail", data = sppcover.scaled, REML = T)
-climPC.mod.us = lmer(formula = climPC.mod.str, na.action = "na.fail", data = sppcover.unscaled, REML = T)
+## Climate as PC axes 1 and 2
+climPC.mod <- readRDS("Results/climPC_models.rds")[[1]] |> unlist()
+climPC.mod.s = update(climPC.mod, na.action = "na.fail", data = sppcover.scaled, REML = T)
+climPC.mod.us = update(climPC.mod, na.action = "na.fail", data = sppcover.unscaled, REML = T)
 
-# Best explicit climate variable model
-# model string
-climVar.mod.str = "endcover ~ startcover*(latmean1090 + I(latmean1090^2) + min.gdd + min.gs.ppt + min.wy.ppt + sitelat) + habit*(min.gdd + sitelat) + perenneating*max.tmean + (1 | transition) + (max.tmean + min.wy.ppt + min.gs.ppt + min.gdd | sciname)"
-
-# Refit with REML
-climVar.mod.s = lmer(formula = climVar.mod.str, na.action = "na.fail", data = sppcover.scaled, REML = T)
-climVar.mod.us = lmer(formula = climVar.mod.str, na.action = "na.fail", data = sppcover.unscaled, REML = T)
-rm(climPC.mod.str,climVar.mod.str)
+# Explicit climate variables
+climVar.mod <- readRDS("Results/climVar_models.rds")[[1]] |> unlist();summary(climVar.mod)
+climVar.mod.s = update(climVar.mod, na.action = "na.fail", data = sppcover.scaled, REML = T)
+climVar.mod.us = update(climVar.mod, na.action = "na.fail", data = sppcover.unscaled, REML = T)
 
 climPC.plantCover.mod.us = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|transition), na.action = "na.fail",data = na.omit(plantcover.us),REML = TRUE)
 
 climVar.plantCover.mod.us = lmer(formula = end.plantCover ~ max.snowdays + mean.gs.ppt + min.wy.ppt + park + start.plantCover + max.snowdays:start.plantCover + mean.gs.ppt:start.plantCover + min.wy.ppt:start.plantCover + (1 | transition), data = plantcover.us, REML = FALSE, na.action = "na.fail")
 ```
 
-
 ## Figure 1. PCA plot
 ```{r fig2_climpca}
 
-pca_df = sppcover.orig %>% 
-  drop_na(startcover,climPC1,climPC2,latmax1090,latmin1090,latmean1090,latmedian1090) %>% 
-  filter(abs(changecover)<=10) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
+pca_df = sppcover.orig %>%
+  drop_na(startcover,climPC1,climPC2,latmax1090,latmin1090,latmean1090,latmedian1090) %>%
+  filter(abs(changecover)<=20) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
   filter(startcover+endcover!=0) %>% 
   select(park,park2,summit,aspect,transition,contains(c(".tmean",".snow",".gdd",".ppt",".pet",".aet"))) %>% 
   mutate(park2 = factor(park2,levels=park2.order))
@@ -2046,8 +2042,8 @@ ggsave("Results/FinalFigures/figure20_REslopesbyints.png",h=13,w=11)
 ## Figure 28. Appendix A
 ```{r fig28_climvar_cors}
 
-climdf = sppcover.orig %>% 
-  filter(abs(changecover)<=10) %>% 
+climdf = sppcover.orig %>%
+  filter(abs(changecover)<=20) %>%
   filter(startcover+endcover!=0) %>% 
   select(gs.tmean=mean.tmean,
          snowdays=mean.snowdays,
@@ -2109,8 +2105,8 @@ fig1.df = NULL
 for(p in parks){
   
   tmp = filter(sppcover.orig,park==p) %>%
-    drop_na(startcover,climPC1,climPC2,latmax1090,latmin1090,latmean1090,latmedian1090) %>% 
-    filter(abs(changecover)<=10) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
+    drop_na(startcover,climPC1,climPC2,latmax1090,latmin1090,latmean1090,latmedian1090) %>%
+    filter(abs(changecover)<=20) %>% # remove suspiciously large changes as these are likely associated with misIDed spp
     filter(startcover+endcover!=0) %>% 
     select(park,summit,aspect,sciname,startyear,endyear,startcover,endcover) %>% 
     unique()
