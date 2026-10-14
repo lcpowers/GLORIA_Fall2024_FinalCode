@@ -49,7 +49,7 @@ rm(scale_cols)
 ```
 
 
-1. Finding optimal random effect structure 
+1. Find random effect structure 
 ```{r REstructure}
 
 # Random intercept candidate variables
@@ -126,7 +126,7 @@ write_csv(REcombos,"Results/RandomEffects/RE_SelectionTable.csv")
 ```
 
 
-2. Finding optimal fixed structure with climate PCs 1 & 2 #####
+2. Find fixed structure with climate PCs 1 & 2 #####
 Refit best RE model using ML + dredge to find the most important fixed effects
 ```{r FEstructure_refitwithML_thenDredge}
 
@@ -357,7 +357,7 @@ best.explClimVar.RE.mod.ML = lmer(formula = best.explClim.RE.mod ,na.action =  "
 
 # Dredge this model
 clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
-clust <- try(makeCluster(getOption("cl.cores", 5), type = clusterType))
+clust <- try(makeCluster(getOption("cl.cores", 35), type = clusterType))
 clusterEvalQ(clust, library(lme4))
 clusterExport(clust,"dats.scaled")
 
@@ -371,21 +371,27 @@ best.explClimVar.RE.mod.dredge = dredge(best.explClimVar.RE.mod.ML,
 stopCluster(clust)
 rm(clust)
 
-explClimVar.RE.mod.dredge.fltr = filter(best.explClimVar.RE.mod.dredge,delta<1)
-best.explClimVar.mod = get.models(explClimVar.RE.mod.dredge.fltr,subset = 1)[[1]]
-best.explClimVar.mod@call
-summary(best.explClimVar.mod)
+best.climVar.mod = get.models(best.explClimVar.RE.mod.dredge,subset = 1)[[1]]
+top10.climVar.mods = get.models(best.explClimVar.RE.mod.dredge,subset = 1:10)
 
-# Choosing the second model because it's slightly simpler and a very similar AICc value (one less interaction term)
-best.climVar.mod <- get.models(best.explClimVar.RE.mod.dredge, subset = 2)[[1]]
+saveRDS(object = list(best.climVar.Mod = best.climVar.mod,
+                      top10.climVar.mods = top10.climVar.mods),
+        file = "climVar_models.rds")
+
+climVar.mod.dredge.fltr = as.data.frame(best.explClimVar.RE.mod.dredge) %>% 
+  slice_head(n = 100)
+write_csv(climVar.mod.dredge.fltr,"climVar dredge results.csv")
+
+rm(climPC.RE.mod.dredge)
+
 best.climVar.mod@call
 ```
 
 lmer(formula = endcover ~ habit + latmean1090 + I(latmean1090^2) + 
-    perenneating + mean.tmean + mean.snowdays + mean.gs.ppt + mean.wy.ppt + 
-    sitelat + startcover + (1 | transition) + (max.tmean + mean.wy.ppt + 
-    mean.gs.ppt + mean.snowdays | sciname) + habit:max.tmean + habit:min.gdd + 
-    habit:sitelat + latmean1090:startcover + I(latmean1090^2):startcover + 
-    perenneating:max.tmean + mean.snowdays:startcover + startcover:mean.gs.ppt + 
-    startcover:mean.wy.ppt + sitelat:startcover, data = dats.scaled, 
+    perenneating + mean.gs.ppt + mean.snowdays + mean.tmean + 
+    mean.wy.ppt + sitelat + startcover + (1 | transition) + (mean.tmean + 
+    mean.gs.ppt + mean.snowdays | sciname) + habit:mean.wy.ppt + 
+    latmean1090:startcover + I(latmean1090^2):startcover + startcover:mean.gs.ppt + 
+    perenneating:mean.snowdays + startcover:mean.snowdays + perenneating:mean.tmean + 
+    startcover:mean.tmean + mean.wy.ppt:startcover, data = dats.scaled, 
     REML = FALSE, na.action = "na.fail")
