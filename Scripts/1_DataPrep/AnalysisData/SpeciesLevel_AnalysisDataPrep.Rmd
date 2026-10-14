@@ -38,10 +38,8 @@ siteinfo = read_csv("./Data/siteInfo/summitcoordinates.csv") %>%
 
 traits = read_csv("./Data/speciestraits/allparks_speclist_20220124 traits.csv")
 
-veg <- read_csv("./Data/IntermediateData/all_1x1veg_w0s_final.csv") %>% 
-  group_by(park,summit,aspect,year,sciname) %>% 
-  summarise(cover=mean(cover)) %>% 
-  merge(.,siteinfo,by=c("park","summit")) %>% 
+veg <- read_csv("./Data/IntermediateData/all_1x1veg_w0s_final.csv") %>%
+  merge(.,siteinfo,by=c("park","summit")) %>%
   merge(.,traits) %>%
   # Clean up data based on what we want going into the models
   filter(!str_detect(sciname," sp$")) %>% 
@@ -98,12 +96,23 @@ for(s in summits){
     startyr = years[i]
     endyr = years[i + 1]
     
-    # Cover in start/end year
-    startcover = filter(veg_df,year==startyr) %>% 
-      select(sciname,summit,aspect,startyear=year,startcover=cover)
-    
-    endcover = filter(veg_df,year==endyr) %>% 
-      select(sciname,summit,aspect,endyear=year,endcover=cover)
+    # Quadrats surveyed in both the start and end year
+    matched = filter(veg_df,year%in%c(startyr,endyr)) %>%
+      distinct(aspect,plot,year) %>%
+      count(aspect,plot) %>%
+      filter(n==2) %>%
+      select(aspect,plot)
+
+    # Mean cover in start/end year across matched quadrats only
+    startcover = filter(veg_df,year==startyr) %>%
+      merge(.,matched,by=c("aspect","plot")) %>%
+      group_by(sciname,summit,aspect) %>%
+      summarise(startyear=startyr,startcover=mean(cover),.groups="drop")
+
+    endcover = filter(veg_df,year==endyr) %>%
+      merge(.,matched,by=c("aspect","plot")) %>%
+      group_by(sciname,summit,aspect) %>%
+      summarise(endyear=endyr,endcover=mean(cover),.groups="drop")
     
     # Merge two above dfs
     tmp = merge(startcover,endcover,by=c("sciname","summit","aspect")) %>% 
@@ -161,12 +170,24 @@ for(s in summits){
     
     startyr = years[i]
     endyr = years[i + 1]
-    
-    startcover = filter(veg_df,year==startyr) %>% 
-      select(sciname,summit,aspect,startyear=year,startcover=cover)
-    
-    endcover = filter(veg_df,year==endyr) %>% 
-      select(sciname,summit,aspect,endyear=year,endcover=cover)
+
+    # Quadrats surveyed in both the start and end year
+    matched = filter(veg_df,year%in%c(startyr,endyr)) %>%
+      distinct(aspect,plot,year) %>%
+      count(aspect,plot) %>%
+      filter(n==2) %>%
+      select(aspect,plot)
+
+    # Mean cover in start/end year across matched quadrats only
+    startcover = filter(veg_df,year==startyr) %>%
+      merge(.,matched,by=c("aspect","plot")) %>%
+      group_by(sciname,summit,aspect) %>%
+      summarise(startyear=startyr,startcover=mean(cover),.groups="drop")
+
+    endcover = filter(veg_df,year==endyr) %>%
+      merge(.,matched,by=c("aspect","plot")) %>%
+      group_by(sciname,summit,aspect) %>%
+      summarise(endyear=endyr,endcover=mean(cover),.groups="drop")
     
     tmp = merge(startcover,endcover,by=c("sciname","summit","aspect")) %>% 
       mutate(transition=paste0(s,i))
@@ -217,12 +238,24 @@ for(s in summits){
     
     startyr = years[i]
     endyr = years[i + 1]
-    
-    startcover = filter(veg_df,year==startyr) %>% 
-      select(sciname,summit,aspect,startyear=year,startcover=cover)
-    
-    endcover = filter(veg_df,year==endyr) %>% 
-      select(sciname,summit,aspect,endyear=year,endcover=cover)
+
+    # Quadrats surveyed in both the start and end year
+    matched = filter(veg_df,year%in%c(startyr,endyr)) %>%
+      distinct(aspect,plot,year) %>%
+      count(aspect,plot) %>%
+      filter(n==2) %>%
+      select(aspect,plot)
+
+    # Mean cover in start/end year across matched quadrats only
+    startcover = filter(veg_df,year==startyr) %>%
+      merge(.,matched,by=c("aspect","plot")) %>%
+      group_by(sciname,summit,aspect) %>%
+      summarise(startyear=startyr,startcover=mean(cover),.groups="drop")
+
+    endcover = filter(veg_df,year==endyr) %>%
+      merge(.,matched,by=c("aspect","plot")) %>%
+      group_by(sciname,summit,aspect) %>%
+      summarise(endyear=endyr,endcover=mean(cover),.groups="drop")
     
     tmp = merge(startcover,endcover,by=c("sciname","summit","aspect")) %>% 
       mutate(transition=paste0(s,i))
@@ -273,12 +306,24 @@ for(s in summits){
     
     startyr = years[i]
     endyr = years[i + 1]
-    
-    startcover = filter(veg_df,year==startyr) %>% 
-      select(sciname,summit,aspect,startyear=year,startcover=cover)
-    
-    endcover = filter(veg_df,year==endyr) %>% 
-      select(sciname,summit,aspect,endyear=year,endcover=cover)
+
+    # Quadrats surveyed in both the start and end year
+    matched = filter(veg_df,year%in%c(startyr,endyr)) %>%
+      distinct(aspect,plot,year) %>%
+      count(aspect,plot) %>%
+      filter(n==2) %>%
+      select(aspect,plot)
+
+    # Mean cover in start/end year across matched quadrats only
+    startcover = filter(veg_df,year==startyr) %>%
+      merge(.,matched,by=c("aspect","plot")) %>%
+      group_by(sciname,summit,aspect) %>%
+      summarise(startyear=startyr,startcover=mean(cover),.groups="drop")
+
+    endcover = filter(veg_df,year==endyr) %>%
+      merge(.,matched,by=c("aspect","plot")) %>%
+      group_by(sciname,summit,aspect) %>%
+      summarise(endyear=endyr,endcover=mean(cover),.groups="drop")
     
     tmp = merge(startcover,endcover,by=c("sciname","summit","aspect")) %>% 
       mutate(transition=paste0(s,i))
@@ -335,11 +380,23 @@ for(s in summits){
     startyr = years[i]
     endyr = years[i + 1]
 
+    # Quadrats surveyed in both the start and end year
+    matched = filter(veg_df,year%in%c(startyr,endyr)) %>%
+      distinct(aspect,plot,year) %>%
+      count(aspect,plot) %>%
+      filter(n==2) %>%
+      select(aspect,plot)
+
+    # Mean cover in start/end year across matched quadrats only
     startcover = filter(veg_df,year==startyr) %>%
-      select(sciname,summit,aspect,startyear=year,startcover=cover)
+      merge(.,matched,by=c("aspect","plot")) %>%
+      group_by(sciname,summit,aspect) %>%
+      summarise(startyear=startyr,startcover=mean(cover),.groups="drop")
 
     endcover = filter(veg_df,year==endyr) %>%
-      select(sciname,summit,aspect,endyear=year,endcover=cover)
+      merge(.,matched,by=c("aspect","plot")) %>%
+      group_by(sciname,summit,aspect) %>%
+      summarise(endyear=endyr,endcover=mean(cover),.groups="drop")
 
     tmp = merge(startcover,endcover,by=c("sciname","summit","aspect")) %>%
       mutate(transition=paste0(s,i))
