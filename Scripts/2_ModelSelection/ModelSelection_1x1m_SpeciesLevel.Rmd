@@ -28,6 +28,8 @@ library(performance)
 library(data.table)
 library(foreach)
 
+conflicted::conflicts_prefer(dplyr::filter)
+
 ### Read in and clean data
 dats.orig = read_csv('Data/AnalysisData/specieslevel_analysisdata_final.csv')
 
@@ -121,7 +123,9 @@ for(i in 1:nrow(REcombos)){
 
 rm(r_ints,r_slopes,i,slope_vars,int_vars)
 
-REcombos$deltaAIC = REcombos$AICc-min(REcombos$AICc)
+REcombos$deltaAIC = REcombos$AICc-min(REcombos$AICc) 
+REcombos <- REcombos %>% arrange(deltaAIC)
+
 write_csv(REcombos,"Results/RandomEffects/RE_SelectionTable.csv")
 ```
 
@@ -141,7 +145,7 @@ starttime = Sys.time()
 
 # Dredge this model
 clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
-clust <- try(makeCluster(getOption("cl.cores", 35), type = clusterType))
+clust <- try(makeCluster(getOption("cl.cores", 30), type = clusterType))
 clusterEvalQ(clust, library(lme4))
 clusterExport(clust,"dats.scaled")
 
@@ -164,7 +168,7 @@ saveRDS(object = list(bestMod = best.climPC.fe.mod,top10.climPC.fe.mods = top10.
 # best.climPC.fe.mod@call
 
 climPC.RE.mod.dredge.fltr = as.data.frame(climPC.RE.mod.dredge) %>% filter(delta<2)
-write_csv(climPC.RE.mod.dredge.fltr,"Results/climPC dredge results.csv")
+write_csv(climPC.RE.mod.dredge.fltr,"Results/climPC_dredge_results.csv")
 ```
 
 
@@ -176,7 +180,7 @@ best.climPC.mod = best.climPC.mods$bestMod
 summary(best.climPC.mod)
 
 # Replace climPC1/2 with generic clim var names
-climVar.generic.mod = c("endcover ~ startcover*(tmean.var + cwd.var + ppt.var + snow.gdd.var + latmean1090 + I(latmean1090^2) + sitelat) + (tmean.var + cwd.var + ppt.var + snow.gdd.var)*perenneating + habit*(tmean.var + cwd.var + ppt.var + snow.gdd.var) + habit*sitelat + (1 | transition)")
+climVar.generic.mod = c("endcover ~ startcover*(tmean.var + cwd.var + ppt.var + snow.gdd.var + latmean1090 + I(latmean1090^2) + sitelat) + perenneating*(tmean.var + cwd.var + ppt.var + snow.gdd.var) + habit*(tmean.var + cwd.var + ppt.var + snow.gdd.var) + habit*sitelat + (1 | transition)")
 
 # Create climate variable variable groups
 val = c("min","max","mean")
@@ -342,6 +346,7 @@ for(i in 1:nrow(REcombos)){
 }
 
 REcombos$deltaAIC = REcombos$AICc - min(REcombos$AICc)
+REcombos <- REcombos %>% arrange(deltaAIC)
 
 best.explClimVar.RE.mod = REcombos$mod_string[which.min(REcombos$AICc)]
 best.explClimVar.RE.mod
@@ -355,7 +360,7 @@ best.explClimVar.RE.mod.ML = lmer(formula = best.explClimVar.RE.mod ,na.action =
 
 # Dredge this model
 clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
-clust <- try(makeCluster(getOption("cl.cores", 35), type = clusterType))
+clust <- try(makeCluster(getOption("cl.cores", 30), type = clusterType))
 clusterEvalQ(clust, library(lme4))
 clusterExport(clust,"dats.scaled")
 

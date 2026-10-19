@@ -50,7 +50,6 @@ scale_cols = dats %>% select(startcover,climPC1,climPC2,sitelat,contains(c("1090
 dats.scaled[scale_cols]=lapply(dats.scaled[scale_cols], function(x) scale(x))
 # not_all_na <- function(x) any(!is.na(x))
 rm(scale_cols)
-
 ```
 
 
@@ -126,7 +125,9 @@ for(i in 1:nrow(REcombos)){
 
 rm(r_ints,r_slopes,i,slope_vars,int_vars)
 
-REcombos$deltaAIC = REcombos$AICc-min(REcombos$AICc) 
+REcombos$deltaAIC = REcombos$AICc-min(REcombos$AICc)
+REcombos <- REcombos %>% arrange(deltaAIC)
+
 write_csv(REcombos,"Results/RandomEffects/RE_SelectionTable_B.csv")
 ```
 
