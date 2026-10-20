@@ -85,7 +85,7 @@ for(i in 1:nrow(REcombos)){
     # print("int and slopes")
 
     int_terms = paste0("(1|",ints_i,")",collapse = "+")
-    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," || sciname)",sep = "")
     mod_i = paste(basemod,int_terms,slope_terms,sep = " + ")
     rm(int_terms,slope_terms)
   }
@@ -102,7 +102,7 @@ for(i in 1:nrow(REcombos)){
   # random slope terms only
   if( length(ints_i)==0 & length(slopes_i)>0 ){
       # print("slope only")
-    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," || sciname)",sep = "")
     mod_i = paste(basemod,slope_terms,sep = "+")
     rm(slope_terms)
   }
@@ -263,7 +263,7 @@ int_vars = c("PSaspect","sciname","transition")
 r_ints = powerSet(int_vars)
 
 # Random slope candidate variables
-slope_vars = c("mean.tmean","mean.wy.ppt","mean.gs.ppt","mean.snowdays","sitelat")
+slope_vars = c("mean.tmean","mean.wy.ppt","mean.gs.ppt","mean.snowdays")
 r_slopes = powerSet(slope_vars) # all of these wrt sciname
 
 # Create dataframe to more easily see all combinations of random slopes and intercepts
@@ -301,10 +301,10 @@ for(i in 1:nrow(REcombos)){
     # mod_i = paste(basemod,int_terms,slope_terms,sep = "+")
 
     int_terms = paste0("(1|",ints_i,")",collapse = "+")
-    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," || sciname)",sep = "")
     mod_i = paste(basemod,int_terms,slope_terms,sep = " + ")
     rm(int_terms,slope_terms)
-    
+
   }
 
   ## Random int terms only ##
@@ -326,12 +326,12 @@ for(i in 1:nrow(REcombos)){
     # slope_terms = paste0("(",slopes_i," || sciname)",collapse="+")
     # mod_i = paste(basemod,slope_terms,sep = "+")
     
-    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," || sciname)",sep = "")
     mod_i = paste(basemod,slope_terms,sep = "+")
     rm(slope_terms)
 
   }
-  
+
   ## Store model string in REcombos ##
   REcombos$mod_string[i] = mod_i
   # Fit model using REML (default but still explicit here)
