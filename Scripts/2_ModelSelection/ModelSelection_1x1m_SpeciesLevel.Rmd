@@ -11,7 +11,7 @@ Steps:
 
 ## Packages and data
 ```{r start}
-# rm(list=ls())
+rm(list=ls())
 
 ### Packages
 library(tidyverse)
@@ -42,7 +42,7 @@ dats=dats.orig %>%
   filter(startcover+endcover!=0) %>%  # remove cases where a species did not have start or end cover
   mutate(parksummit = paste(park,summit,sep="."),
          PSaspect = paste(park,summit,aspect,sep="."),
-         startcovcats = cut(startcover,breaks=c(-0.1,seq(0.1,40,5)))) %>% filter(habit!="tree")
+         startcovcats = cut(startcover,breaks=c(-0.1,seq(0.1,40,5)))) %>% filter(habit!="tree" & perenneating != "annual")
 
 # Create another dataframe where numeric predictor variables are scaled
 dats.scaled = dats# Get names columns to standardize
@@ -148,13 +148,13 @@ climPC.RE.mod.MLfit %>% summary()
 
 # Dredge this model
 clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
-clust <- try(makeCluster(getOption("cl.cores", 30), type = clusterType))
+clust <- try(makeCluster(getOption("cl.cores", 40), type = clusterType))
 clusterEvalQ(clust, library(lme4))
 clusterExport(clust,"dats.scaled")
 
 climPC.RE.mod.dredge =  dredge(climPC.RE.mod.MLfit,
                         beta = c("none"),
-                        fixed = c('startcover',"climPC1"), # Fixing clim PC1 because it is a random slope terms
+                        fixed = c('startcover',"climPC1"), # Fixing clim PC1 because it is a random slope term
                         trace=2,
                         subset = dc(latmean1090,I(latmean1090^2)),
                         cluster = clust)
