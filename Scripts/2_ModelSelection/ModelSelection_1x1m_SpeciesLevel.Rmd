@@ -30,6 +30,9 @@ library(foreach)
 
 conflicted::conflicts_prefer(dplyr::filter)
 
+# Set once so every file from this run gets the same date, even if the run crosses midnight
+run.date = Sys.Date()
+
 ### Read in and clean data
 dats.orig = read_csv('Data/AnalysisData/specieslevel_analysisdata_final.csv')
 
@@ -126,7 +129,7 @@ rm(r_ints,r_slopes,i,slope_vars,int_vars)
 REcombos$deltaAIC = REcombos$AICc-min(REcombos$AICc) 
 REcombos <- REcombos %>% arrange(deltaAIC)
 
-write_csv(REcombos,"Results/RandomEffects/RE_SelectionTable.csv")
+write_csv(REcombos,paste0("Results/RandomEffects/RE_SelectionTable_",run.date,".csv"))
 ```
 
 
@@ -163,19 +166,19 @@ best.climPC.fe.mod = get.models(climPC.RE.mod.dredge,subset = 1)[[1]]
 top10.climPC.fe.mods = get.models(climPC.RE.mod.dredge,subset = 1:10)
 
 saveRDS(object = list(bestMod = best.climPC.fe.mod,top10.climPC.fe.mods = top10.climPC.fe.mods),
-        file = paste0("Results/climPC_models",Sys.Date(),".rds"))
+        file = paste0("Results/climPC_models_",run.date,".rds"))
 
 # best.climPC.fe.mod@call
 
-climPC.RE.mod.dredge.fltr = as.data.frame(climPC.RE.mod.dredge) %>% filter(delta<2)
-write_csv(climPC.RE.mod.dredge.fltr,paste0("Results/climPC_dredge_results_",Sys.Date(),".csv"))
+climPC.RE.mod.dredge.fltr = as.data.frame(climPC.RE.mod.dredge) %>% slice_head(n = 10)
+write_csv(climPC.RE.mod.dredge.fltr,paste0("Results/climPC_dredge_results_",run.date,".csv"))
 ```
 
 
 3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
 ```{r best.clim.vars}
 
-best.climPC.mods <- readRDS("Results/climPC_models.rds")
+best.climPC.mods <- readRDS(paste0("Results/climPC_models_",run.date,".rds"))
 best.climPC.mod = best.climPC.mods$bestMod
 summary(best.climPC.mod)
 
@@ -379,11 +382,11 @@ top10.climVar.mods = get.models(best.explClimVar.RE.mod.dredge,subset = 1:10)
 
 saveRDS(object = list(best.climVar.Mod = best.climVar.mod,
                       top10.climVar.mods = top10.climVar.mods),
-        file = "Results/climVar_models.rds")
+        file = paste0("Results/climVar_models_",run.date,".rds"))
 
-climVar.mod.dredge.fltr = as.data.frame(best.explClimVar.RE.mod.dredge) %>% 
-  slice_head(n = 100)
-write_csv(climVar.mod.dredge.fltr,"Results/climVar dredge results.csv")
+climVar.mod.dredge.fltr = as.data.frame(best.explClimVar.RE.mod.dredge) %>%
+  slice_head(n = 10)
+write_csv(climVar.mod.dredge.fltr,paste0("Results/climVar_dredge_results_",run.date,".csv"))
 
 rm(climPC.RE.mod.dredge)
 

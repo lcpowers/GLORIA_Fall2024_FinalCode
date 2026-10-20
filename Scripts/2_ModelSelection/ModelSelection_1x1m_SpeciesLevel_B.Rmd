@@ -28,6 +28,9 @@ library(performance)
 library(data.table)
 library(foreach)
 
+# Set once so every file from this run gets the same date, even if the run crosses midnight
+run.date = Sys.Date()
+
 ### Read in and clean data
 dats.orig = read_csv('Data/AnalysisData/specieslevel_analysisdata_final.csv')
 
@@ -87,7 +90,7 @@ for(i in 1:nrow(REcombos)){
     # print("int and slopes")
 
     int_terms = paste0("(1|",ints_i,")",collapse = "+")
-    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," || sciname)",sep = "")
     mod_i = paste(basemod,int_terms,slope_terms,sep = " + ")
     rm(int_terms,slope_terms)
   }
@@ -104,7 +107,7 @@ for(i in 1:nrow(REcombos)){
   # random slope terms only
   if( length(ints_i)==0 & length(slopes_i)>0 ){
       # print("slope only")
-    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," || sciname)",sep = "")
     mod_i = paste(basemod,slope_terms,sep = "+")
     rm(slope_terms)
   }
@@ -128,7 +131,7 @@ rm(r_ints,r_slopes,i,slope_vars,int_vars)
 REcombos$deltaAIC = REcombos$AICc-min(REcombos$AICc)
 REcombos <- REcombos %>% arrange(deltaAIC)
 
-write_csv(REcombos,"Results/RandomEffects/RE_SelectionTable_B.csv")
+write_csv(REcombos,paste0("Results/RandomEffects/RE_SelectionTable_B_",run.date,".csv"))
 ```
 
 
@@ -165,17 +168,18 @@ best.climPC.fe.mod = get.models(climPC.RE.mod.dredge,subset = 3)[[1]]
 top10.climPC.fe.mods = get.models(climPC.RE.mod.dredge,subset = 1:10)
 
 saveRDS(object = list(bestMod = best.climPC.fe.mod,top10.climPC.fe.mods = top10.climPC.fe.mods),
-        file = "Results/climPC_models_B.rds")
+        file = paste0("Results/climPC_models_B_",run.date,".rds"))
 
 # best.climPC.fe.mod@call
 
-climPC.RE.mod.dredge.fltr = as.data.frame(climPC.RE.mod.dredge) %>% dplyr::slice_head(n=50)
-write_csv(climPC.RE.mod.dredge.fltr,"Results/climPC_dredge_results_B.csv")
+climPC.RE.mod.dredge.fltr = as.data.frame(climPC.RE.mod.dredge) %>% dplyr::slice_head(n = 10)
+write_csv(climPC.RE.mod.dredge.fltr,paste0("Results/climPC_dredge_results_B_",run.date,".csv"))
 ```
 
 ```{r}
-model_a <- readRDS("Results/climPC_models.rds")[[1]]
-model_b <- readRDS("Results/climPC_models_B.rds")[[1]]
+main.run.date = "YYYY-MM-DD" # date of the main ModelSelection_1x1m_SpeciesLevel.Rmd run to compare against
+model_a <- readRDS(paste0("Results/climPC_models_",main.run.date,".rds"))[[1]]
+model_b <- readRDS(paste0("Results/climPC_models_B_",run.date,".rds"))[[1]]
 
 sjPlot::plot_models(model_a,model_b)
 ```
@@ -184,7 +188,7 @@ sjPlot::plot_models(model_a,model_b)
 3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
 ```{r best.clim.vars}
 
-best.climPC.mods <- readRDS("Results/climPC_models_B.rds")
+best.climPC.mods <- readRDS(paste0("Results/climPC_models_B_",run.date,".rds"))
 best.climPC.mod = best.climPC.mods$bestMod
 summary(best.climPC.mod)
 
@@ -272,7 +276,7 @@ int_vars = c("PSaspect","sciname","transition")
 r_ints = powerSet(int_vars)
 
 # Random slope candidate variables
-slope_vars = c("mean.tmean","mean.wy.ppt","mean.gs.ppt","mean.snowdays","sitelat")
+slope_vars = c("mean.tmean","mean.wy.ppt","mean.gs.ppt","mean.snowdays")
 r_slopes = powerSet(slope_vars) # all of these wrt sciname
 
 # Create dataframe to more easily see all combinations of random slopes and intercepts
@@ -310,7 +314,7 @@ for(i in 1:nrow(REcombos)){
     # mod_i = paste(basemod,int_terms,slope_terms,sep = "+")
 
     int_terms = paste0("(1|",ints_i,")",collapse = "+")
-    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," || sciname)",sep = "")
     mod_i = paste(basemod,int_terms,slope_terms,sep = " + ")
     rm(int_terms,slope_terms)
     
@@ -335,7 +339,7 @@ for(i in 1:nrow(REcombos)){
     # slope_terms = paste0("(",slopes_i," || sciname)",collapse="+")
     # mod_i = paste(basemod,slope_terms,sep = "+")
     
-    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," || sciname)",sep = "")
     mod_i = paste(basemod,slope_terms,sep = "+")
     rm(slope_terms)
 
@@ -389,11 +393,11 @@ top10.climVar.mods = get.models(best.explClimVar.RE.mod.dredge,subset = 1:10)
 
 saveRDS(object = list(best.climVar.Mod = best.climVar.mod,
                       top10.climVar.mods = top10.climVar.mods),
-        file = "Results/climVar_models_B.rds")
+        file = paste0("Results/climVar_models_B_",run.date,".rds"))
 
-climVar.mod.dredge.fltr = as.data.frame(best.explClimVar.RE.mod.dredge) %>% 
-  slice_head(n = 100)
-write_csv(climVar.mod.dredge.fltr,"Results/climVar_dredge_results_B.csv")
+climVar.mod.dredge.fltr = as.data.frame(best.explClimVar.RE.mod.dredge) %>%
+  slice_head(n = 10)
+write_csv(climVar.mod.dredge.fltr,paste0("Results/climVar_dredge_results_B_",run.date,".csv"))
 
 rm(climPC.RE.mod.dredge)
 
