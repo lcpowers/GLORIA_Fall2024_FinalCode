@@ -40,7 +40,7 @@ dats=dats.orig %>%
   filter(startcover+endcover!=0) %>%  # remove cases where a species did not have start or end cover
   mutate(parksummit = paste(park,summit,sep="."),
          PSaspect = paste(park,summit,aspect,sep="."),
-         startcovcats = cut(startcover,breaks=c(-0.1,seq(0.1,40,5)))) %>% 
+         startcovcats = cut(startcover,breaks=c(-0.1,seq(0.1,40,5)))) %>%
   filter(!perenneating%in%c("woody","annual"))
 
 table(dats$perenneating)

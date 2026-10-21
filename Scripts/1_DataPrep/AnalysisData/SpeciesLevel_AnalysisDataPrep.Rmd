@@ -597,9 +597,12 @@ for(s in summits){
     tmp_gdd <- tmp %>% 
       group_by(park,summit,aspect,year) %>% 
       dplyr::summarise(gdd = sum(GDD>0),
+                       real.gdd = sum(GDD),
                        .groups = "drop") %>% 
       group_by(park,summit,aspect) %>%
-      dplyr::summarise(min.gdd=min(gdd),mean.gdd=mean(gdd),max.gdd=max(gdd),.groups = "drop")
+      dplyr::summarise(min.gdd=min(gdd),mean.gdd=mean(gdd),max.gdd=max(gdd),
+                        mean.real.gdd = mean(real.gdd),
+                       .groups = "drop")
     
     tmp_grwszn <- merge(tmp_cwd,tmp_gdd)%>% 
       mutate(transition=paste0(s,i))
@@ -610,7 +613,7 @@ for(s in summits){
 }
 
 all_parks_h20yr_gs <- merge(all_parks_h20yr,wbm_grwszn,by=c("park","summit","aspect","transition"))
-
+cor(wbm_grwszn$mean.gdd,wbm_grwszn$mean.real.gdd)
 ```
 
 # add in PC1 and PC2 based on climate vars
@@ -655,5 +658,18 @@ pcdat = as.data.frame(climpca$x) %>% select(climPC1=PC1,climPC2=PC2) %>%
 all_parks_h20yr_gs_pca = merge(all_parks_h20yr_gs,pcdat,by=c("park","summit","aspect","transition"),all.x=T)
 
 write_csv(all_parks_h20yr_gs_pca,paste0("Data/AnalysisData/specieslevel_analysisdata_final.csv"))
+```
+
+plot correlations by park
+```{r climcor_by_park}
+# ppt is the same for every aspect on a summit, so one row per summit-transition
+climdats = read_csv("Data/AnalysisData/specieslevel_analysisdata_final.csv") %>%
+  select(park,summit,transition,contains(".gdd")) %>%
+  na.omit() %>%
+  distinct()
+
+corrplot::corrplot(cor(select(climdats,-c(park,summit,transition))),method="number",type="lower",tl.cex=0.8,tl.col="black",
+                   title=paste0("All parks (n = ",nrow(climdats),")"),mar=c(0,0,2,0))
+
 ```
 

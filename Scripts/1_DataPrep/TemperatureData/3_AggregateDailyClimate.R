@@ -100,7 +100,7 @@ wbm_data <- read_csv("Data/IntermediateData/dailyWBdata.csv")
 # }
 # 
 # # Add growing season column
-# grwszndates <- seq(as.Date('2020-07-25'),as.Date('2020-09-25'),by='days')
+# grwszndates <- seq(as.Date('2020-07-01'),as.Date('2020-09-25'),by='days')
 # grwszndates <-  format(grwszndates,format="%m-%d")
 # dailyT$grwszn <- ifelse(format(dailyT$date,format="%m-%d") %in% grwszndates,1,0)
 # 
@@ -123,7 +123,7 @@ PEC <- filter(dailyT,park=="PEC")
 ##### Create df/csv to use in models that predict missing mean t values #####
 # Create data.frames for each pack which will be used to interpolated climate. Columns should be park, summit, date, then temperature for each park-summit combo, and prism temps
 
-parks <- c("GSD","RMN","YNP","GNP") # No pecos because no missing T data @ pecos
+parks <- c("GSD","RMN","YNP","GNP","PEC") # No pecos because no missing T data @ pecos
 
 for(parki in parks){
   
