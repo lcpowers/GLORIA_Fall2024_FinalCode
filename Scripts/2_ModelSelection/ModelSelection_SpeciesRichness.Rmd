@@ -9,7 +9,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-rm(list=ls())
+# rm(list=ls())
 
 ### Packages
 library(tidyverse)
@@ -22,107 +22,185 @@ library(sjPlot)
 library(sjmisc)
 library(sjlabelled)
 library(performance)
+library(doParallel)
+library(foreach)
+library(data.table)
 
 ### Read in and clean data
-dats.orig = read_csv('Data/AnalysisData/specieslevel_analysisdata_final.csv')
+traits = read_csv("Data/speciesTraits/allparks_speclist_20220124 traits.csv")
 
-dats=dats.orig |>
-  drop_na(climPC1,climPC2) |>  # only drop site groups missing climate PCs -- keep everything else unfiltered,
-  # unlike the species cover models (no abs(changecover)<=20 filter, no drop_na on lat range cols -- that drops Draba heilii)
-  filter(startcover!=0|endcover!=0) |>  # remove cases where a species did not have start or end cover
+# Quadrat-level species cover (zero-filled for surveyed quadrats), cleaned the same way as the species-level data
+veg = read_csv("Data/IntermediateData/all_1x1veg_w0s_final.csv") |>
+  merge(traits) |>
+  filter(!str_detect(sciname," sp$")) |>
+  filter(tax_unit!="lichen"&habit!="clubmoss"&habit!="fern"&habit!="tree"&perennating!="annual")
+
+# Summit-aspect-transition climate and site latitude from the species-level data
+# only drop site groups missing climate PCs -- no species-level filters here
+site.dats = read_csv('Data/AnalysisData/specieslevel_analysisdata_final.csv') |>
+  select(park,summit,aspect,transition,startyear,endyear,sitelat,starts_with(c("climPC","min.","mean.","max."))) |>
+  distinct() |>
+  drop_na(climPC1,climPC2)
+
+mod.dats = site.dats |>
+  select(summit,aspect,transition,startyear,endyear) |>
+  inner_join(select(veg,summit,aspect,plot,habit,startyear=year,sciname,startcover=cover),by=c("summit","aspect","startyear")) |>
+  inner_join(select(veg,summit,aspect,plot,endyear=year,sciname,endcover=cover),by=c("summit","aspect","plot","endyear","sciname")) |>
+  # filter(habit %in% c("forb","gram")) |>
+  filter(habit != "tree") |>
+  group_by(summit,aspect,plot,transition) |>
+  summarise(start.nspp = n_distinct(sciname[which(startcover > 0)]),
+            end.nspp = n_distinct(sciname[which(endcover > 0)]),
+            
+            start.n.forbs = n_distinct(sciname[which(startcover > 0 & habit=="forb")]),
+            end.n.forbs = n_distinct(sciname[which(endcover > 0 & habit=="forb")]),
+            change.forbs = end.n.forbs - start.n.forbs,
+            
+            start.n.gram = n_distinct(sciname[which(startcover > 0 & habit=="gram")]),
+            end.n.gram = n_distinct(sciname[which(endcover > 0 & habit=="gram")]),
+            change.gram = end.n.gram - start.n.gram,
+            
+            shared = n_distinct(sciname[which(startcover > 0 & endcover > 0)]),
+            gains = n_distinct(sciname[which(startcover == 0 & endcover > 0)]),
+            losses = n_distinct(sciname[which(startcover > 0 & endcover == 0)]),
+
+            # Reviewer 1 #3: compositional change using species cover (Bray-Curtis dissimilarity between start and end survey; 0 = identical, 1 = no shared cover)
+            bc.dissim = sum(abs(endcover - startcover)) / sum(startcover + endcover),
+            .groups = "drop") |>
+  mutate(change.nspp = end.nspp - start.nspp,
+         turnover = (gains + losses) / (shared + gains + losses), # Reviewer 1 #3 & Reviewer 2: proportion of species gained or lost (Jaccard dissimilarity)
+         tr.num = as.numeric(substr(transition,4,4))) |>
+  merge(site.dats,by=c("summit","aspect","transition")) |>
   mutate(parksummit = paste(park,summit,sep="."),
-         PSaspect = paste(park,summit,aspect,sep=".")) |>
-  select( -c(family,genus,species,perenneating,leaves,habit,taxunit,starts_with("lat"),expanded,contracted,nochange) )
-names(dats)
-
-mod.dats <- dats |>
-  group_by(park,summit,aspect,transition,startyear) |>
-  mutate(start.nspp = n_distinct(sciname[which(startcover > 0)]),
-         end.nspp = n_distinct(sciname[which(endcover > 0)]),
-         change.nspp = end.nspp - start.nspp,
-         gains = n_distinct(sciname[which(startcover == 0 & endcover > 0)]),
-         losses = n_distinct(sciname[which(startcover > 0 & endcover == 0)])) |>
-  select(-c(sciname,startcover,endcover,changecover,propchangecover,startcover0,endcover0,no0)) |>
-  unique()
-names(mod.dats)
-table(mod.dats$park,mod.dats$summit)
+         PSaspect = paste(park,summit,aspect,sep="."),
+         PSaspect.plot = paste(park,summit,aspect,plot,sep="."),
+         quadrat = paste(park,summit,plot,sep="."),
+         quad.trans = paste0(quadrat,".",tr.num))
 
 mod.dats$park = factor(mod.dats$park,levels=c("GNP","YNP","RMN","GSD","PEC"))
+
+run.date <- Sys.Date()
+
+### Create another dataframe where numeric predictor variables are scaled ###
+dats.scaled = mod.dats # Get names columns to standardize
+scale_cols = mod.dats %>% select(start.nspp,climPC1,climPC2,sitelat,contains(c(".tmean",".aet",".pet",".ppt",".snowdays",".gdd"))) %>% names()
+dats.scaled[scale_cols]=lapply(dats.scaled[scale_cols], function(x) scale(x))
+
+rm(scale_cols)
 ```
 
-## Direction test: did richness change overall, and by park?
+## Did richness change overall and by park?
+```{r direction_test_richness}
+# Reviewer 1 (minor comment: "a simple analysis to test if richness increased") & Reviewer 2 (general comment on richness)
+# Intercept = mean change in number of species per quadrat; CI excluding 0 = systematic change
+nspp.mod = lmer(change.nspp ~ 1 + (1|transition), data = mod.dats, REML = TRUE)
+confint(nspp.mod, parm = "beta_", method = "Wald")
+
+# By park
+nspp.park.mod = lmer(change.nspp ~ 0 + park + (1|transition), data = mod.dats, REML = TRUE)
+confint(nspp.park.mod, parm = "beta_", method = "Wald")
+```
+
+## Are forbs and graminoids increasing or decreasing?
 ```{r direction_test}
+# Editor & Reviewer 1 (line 27): community-level check on species-level result that graminoids increased more than forbs
+# Intercept = mean change in number of species per quadrat; CI excluding 0 = systematic change
+forb.mod = lmer(change.forbs ~ 1 + (1|transition), data = mod.dats, REML = TRUE)
+gram.mod = lmer(change.gram ~ 1 + (1|transition), data = mod.dats, REML = TRUE)
+confint(forb.mod, parm = "beta_", method = "Wald")
+confint(gram.mod, parm = "beta_", method = "Wald")
 
-dir.mod = lmer(change.nspp ~ 1 + (1|PSaspect) + (1|transition),
-                  na.action = "na.fail",data = mod.dats,REML = TRUE)
-summary(dir.mod)
-
-park.mod = lmer(change.nspp ~ 0 + park + (1|PSaspect) + (1|transition),
-                  na.action = "na.fail",data = mod.dats,REML = TRUE)
-summary(park.mod)
-
+# By park
+forb.park.mod = lmer(change.forbs ~ 0 + park + (1|transition), data = mod.dats, REML = TRUE)
+gram.park.mod = lmer(change.gram ~ 0 + park + (1|transition), data = mod.dats, REML = TRUE)
+confint(forb.park.mod, parm = "beta_", method = "Wald")
+confint(gram.park.mod, parm = "beta_", method = "Wald")
 ```
 
-## Gains and losses
-```{r gains_losses}
+## How much species turnover is there, by park?
+```{r turnover}
+# Reviewer 1 #3 (turnover not quantified) & Reviewer 2 (general comment on species gains and losses)
+# Mean number of species gained and lost per quadrat, by park
+gains.park.mod = lmer(gains ~ 0 + park + (1|transition), data = mod.dats, REML = TRUE)
+losses.park.mod = lmer(losses ~ 0 + park + (1|transition), data = mod.dats, REML = TRUE)
+confint(gains.park.mod, parm = "beta_", method = "Wald")
+confint(losses.park.mod, parm = "beta_", method = "Wald")
 
-gl.dats = mod.dats |>
-  select(park,summit,aspect,PSaspect,transition,gains,losses) |>
-  pivot_longer(cols=c(gains,losses),names_to="type",values_to="count") |>
-  mutate(type = factor(type,levels=c("gains","losses")))
-
-mean(mod.dats$gains); mean(mod.dats$losses)
-
-gl.mod = glmer(count ~ type + (1|PSaspect) + (1|transition),
-                  na.action = "na.fail",data = gl.dats,family = poisson)
-summary(gl.mod)
-check_overdispersion(gl.mod)
-
+# Turnover based on presence/absence (proportion of species gained or lost) and on cover (Bray-Curtis)
+turnover.park.mod = lmer(turnover ~ 0 + park + (1|transition), data = mod.dats, REML = TRUE)
+bc.park.mod = lmer(bc.dissim ~ 0 + park + (1|transition), data = mod.dats, REML = TRUE)
+confint(turnover.park.mod, parm = "beta_", method = "Wald")
+confint(bc.park.mod, parm = "beta_", method = "Wald")
 ```
 
-Vascular plant cover models have very few predictor variables, so model selection is much simpler
-- Fixed effects are start richness, climate variables, and site latitude -- here
-- Park is left out of driver models (not just here): within-park SD of sitelat is 0.003-0.17 degrees, so sitelat and park are nearly redundant, and sitelat is the finer-grained of the two
-- Random effect options are PSaspect and transition
+## Model selection for change in richness (steps 1-4)
+Reviewer 1 (minor comment on richness) & Reviewer 2 (general comment): the "simple models" of change in species richness, built with the same model selection procedure as the species-level models
+
+1. Find random effect structure
 ```{r REstructure}
 
-### Compare RE options with a fully saturated FE structure
+###### Full fixed effects model before any winnowing of FE variables #######
 
-# PS aspect random slope
-mod1 = lmer(end.nspp~start.nspp*(climPC1+climPC2+sitelat) + (1|PSaspect),
-                  na.action = "na.fail",data = mod.dats,REML = TRUE)
+mod1 <- lmer(end.nspp ~ start.nspp*(climPC1+climPC2+sitelat) + (1|PSaspect),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
 
-# transition as random slope
-mod2 = lmer(end.nspp~start.nspp*(climPC1+climPC2+sitelat) + (1|transition),
-                  na.action = "na.fail",data = mod.dats,REML = TRUE)
+mod2 <- lmer(end.nspp ~ start.nspp*(climPC1+climPC2+sitelat) + (1|transition),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
 
-# both as random slopes
-mod3 = lmer(end.nspp~start.nspp*(climPC1+climPC2+sitelat) + (1|PSaspect) + (1|transition),
-                  na.action = "na.fail",data = mod.dats,REML = TRUE)
+mod3 <- lmer(end.nspp ~ start.nspp*(climPC1+climPC2+sitelat) + (1|quadrat),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
 
-# Compare AICc values
-mod.compare = AICc(mod1,mod2,mod3) |> mutate(delta = AICc-min(AICc)) |> arrange(delta)
-mod.compare
+mod4 <- lmer(end.nspp ~ start.nspp*(climPC1+climPC2+sitelat) + (1|PSaspect) + (1|transition),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
 
-##### Refit the best RE structure above with ML and dredge
-mod2.ML = lmer(end.nspp~start.nspp*(climPC1+climPC2+sitelat) + (1|transition),
-                  na.action = "na.fail",data = mod.dats,REML = F)
+mod5 <- lmer(end.nspp ~ start.nspp*(climPC1+climPC2+sitelat) + (1|quadrat) + (1|transition),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
 
-## Dredge the model that was refit with maximum likelihood
-mod2.dredge = dredge(mod2.ML,beta = c("none"),fixed = c('start.nspp'),trace=2)
+AICc(mod1)
+AICc(mod2)
+AICc(mod3)
+AICc(mod4)
+AICc(mod5)
 
-##### Pull best model from dredge #####
-best.PC.mod = get.models(mod2.dredge,subset = 1)[[1]]
-best.PC.mod@call
-
-rm(mod1,mod2,mod3,mod2.dredge,mod2.ML)
+## Mod 2 is the best model here (mod4 is singular -- quadrat variance estimated at 0)
+# AICc(mod1) 2339.66
+# AICc(mod2) 2326.31
+# AICc(mod3) 2345.11
+# AICc(mod4) 2327.52
+# AICc(mod5) 2328.41
 ```
 
 
-Sub in climate vars for climPC1
+2. Find fixed structure with climate PCs 1 & 2 #####
+Refit best RE model using ML + dredge to find the most important fixed effects
+```{r FEstructure_refitwithML_thenDredge}
 
-3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
-```{r best.clim.vars, warning=FALSE}
+# Refit using ML rather than REML
+climPC.RE.mod.MLfit = lmer(end.nspp ~ start.nspp*(climPC1+climPC2+sitelat) + (1|transition),
+             na.action = "na.fail",data = dats.scaled,REML = FALSE)
+climPC.RE.mod.MLfit %>% summary()
+
+climPC.RE.mod.dredge = dredge(climPC.RE.mod.MLfit, beta = c("none"), fixed = c('start.nspp'),trace=2)
+
+best.climPC.fe.mod = get.models(climPC.RE.mod.dredge,subset = 1)[[1]]
+top10.climPC.fe.mods = get.models(climPC.RE.mod.dredge,subset = 1:10)
+
+saveRDS(object = list(bestMod = best.climPC.fe.mod,top10.climPC.fe.mods = top10.climPC.fe.mods),
+        file = paste0("Results/climPC_models_richness_",run.date,".rds"))
+
+climPC.RE.mod.dredge.fltr = as.data.frame(climPC.RE.mod.dredge) %>% slice_head(n = 10)
+write_csv(climPC.RE.mod.dredge.fltr,paste0("Results/climPC_richness_dredge_results_",run.date,".csv"))
+```
+
+3. Take that model with the optimal FE and RE structure find best explicit climate variables in nested loops
+```{r best.clim.vars}
+
+best.climPC.mods <- readRDS(paste0("Results/climPC_models_richness_",run.date,".rds"))
+best.climPC.mod = best.climPC.mods$bestMod
+summary(best.climPC.mod)
+
+# Replace climPC1/2 with generic clim var names
+climVar.generic.mod = c("end.nspp ~ start.nspp*(sitelat + tmean.var + cwd.var + ppt.var + snow.gdd.var) + (1 | transition)")
 
 # Create climate variable variable groups
 val = c("min","max","mean")
@@ -132,85 +210,161 @@ ppt.grp = append(paste0(val,".gs.ppt"),NA)
 cwd.grp =  append(c(paste0(val,".aet"),paste0(val,".pet"),paste0(val,".wy.ppt")),NA)
 rm(val)
 
-# to see number of combinations (the "." placeholder below needs %>%, not |>)
-clim.combos.df = expand_grid(tmean.grp,snow.gdd.grp,ppt.grp,cwd.grp) %>% filter(rowSums(is.na(.))!=ncol(.))
-
-climVar.generic.mod = "end.nspp~start.nspp*(tmean.var + cwd.var + ppt.var + snow.gdd.var + sitelat) + (1|transition)"
+climVar_param_grid <- expand_grid(tmean.grp,snow.gdd.grp,ppt.grp,cwd.grp) %>%
+  filter(!if_all(everything(), is.na))
 
 # In each iteration, a single climate variable from each group is subbed in for the generic climate variables above (i.e., tmean.var is swapped out for mean.tmean). That model is then fit with ML (not REML) and the AIC value is stored in the output table for comparison once the loops are finished running
 
-# Store results
-clim.mod.AICs = NULL
+#### Initiate cluster #####
+clust = makeCluster(spec = 2)
+registerDoParallel(cl = clust)
 
-for(i in 1:nrow(clim.combos.df)){
-
-  tmean.i = clim.combos.df$tmean.grp[i]
-  cwd.i = clim.combos.df$cwd.grp[i]
-  ppt.i = clim.combos.df$ppt.grp[i]
-  snow.gdd.i = clim.combos.df$snow.gdd.grp[i]
-
-  # If all clim vals are NA skip to next loop
-  if(is.na(tmean.i)&is.na(cwd.i)&is.na(ppt.i)&is.na(snow.gdd.i)) next
-
-  clim.mod.i = climVar.generic.mod
-
+results_list <- foreach::foreach(i = 1:nrow(climVar_param_grid), .packages = c("tidyverse","data.table","lme4","performance","MuMIn") )%dopar%{
+  
+  row.i <- climVar_param_grid[i,]
+  
+  tmean.i <- row.i$tmean.grp
+  cwd.i <- row.i$cwd.grp
+  ppt.i <- row.i$ppt.grp
+  snow.gdd.i <- row.i$snow.gdd.grp
+  
+  clim.mod.i = climVar.generic.mod 
+  
   # either remove tmean.var or replace with specific tmean variable name. Repeat the same process for all other clim variable groups
   if(is.na(tmean.i)) {clim.mod.i = gsub(pattern = "tmean.var + ",replacement = "", x = clim.mod.i, fixed = T)
   }else{clim.mod.i = gsub(pattern = "tmean.var",replacement = tmean.i,x = clim.mod.i)}
-
+  
   if(is.na(cwd.i)) {clim.mod.i = gsub(pattern = "cwd.var + ",replacement = "", x = clim.mod.i, fixed = T)
   }else{clim.mod.i = gsub(pattern = "cwd.var",replacement = cwd.i,x = clim.mod.i)}
-
+          
   if(is.na(ppt.i)) {clim.mod.i = gsub(pattern = "ppt.var + ",replacement = "", x = clim.mod.i, fixed = T)
   }else{clim.mod.i = gsub(pattern = "ppt.var",replacement = ppt.i,x = clim.mod.i)}
-
+  
   if(is.na(snow.gdd.i)) {clim.mod.i = gsub(pattern = " + snow.gdd.var",replacement = "", x = clim.mod.i, fixed = T)
   }else{clim.mod.i = gsub(pattern = "snow.gdd.var",replacement = snow.gdd.i,x = clim.mod.i)}
+  
+  out_df = data.table(tmean.var = tmean.i,
+            snow.gdd.var = snow.gdd.i,
+            ppt.var = ppt.i,
+            cwd.var = cwd.i,
+            mod.str = clim.mod.i)
+  
+   # Fit in LMER
+    mod.fit.i = lmer(formula = clim.mod.i, data = dats.scaled, REML = FALSE, na.action = "na.fail")
 
-  out_df = data.frame(tmean.var = tmean.i,
-              snow.gdd.var = snow.gdd.i,
-              ppt.var = ppt.i,
-              cwd.var = cwd.i,
-              mod.str = clim.mod.i)
-
-  # Fit in LMER
-  mod.fit.i = lmer(formula = clim.mod.i, data = mod.dats, REML = FALSE, na.action = "na.fail")
-
-  out_df$AICc=AICc(mod.fit.i)
-  out_df$condR2 = r2(mod.fit.i)[[1]]
-  out_df$margR2 = r.squaredGLMM(mod.fit.i)[[2]]
-
-  clim.mod.AICs = rbind(clim.mod.AICs,out_df)
-  rm(out_df,clim.mod.i)
+    out_df$AICc=AICc(mod.fit.i)
+    out_df$condR2 = r2(mod.fit.i)[[1]]
+    out_df$margR2 = r.squaredGLMM(mod.fit.i)[[1]]
+    return(out_df)
 
 }
+stopCluster(clust)
+clim.mod.AICs <- rbindlist(results_list)
 
-## add a delta AIC column
-clim.mod.AICs$delta = clim.mod.AICs$AICc-min(clim.mod.AICs$AICc)
+clim.mod.AICs$delta = clim.mod.AICs$AICc - min(clim.mod.AICs$AICc)
+clim.mod.AICs <- clim.mod.AICs %>% arrange(delta)
 
-## Pull out model string for model with lowest AIC
 best.ExplClimVar.mod.str <- clim.mod.AICs$mod.str[clim.mod.AICs$delta==0]
-
-## Fit that model again and put in global env
-best.ExplClimVar.mod = lmer(best.ExplClimVar.mod.str, data = mod.dats, REML = FALSE, na.action = "na.fail")
-
-## Dredge that model
-dredge.climVar.mod = dredge(best.ExplClimVar.mod,beta = c("none"),fixed = c('start.nspp'),trace=2)
-
-## Pull out best model from dredge and refit with REML for parameter estimates
-best.climVar.mod = get.models(dredge.climVar.mod,subset=1)[[1]]
-best.climVar.mod@call
-
-final.climVar.mod = best.climVar.mod
-summary(final.climVar.mod)
-
-## Compare to start richness only, as a baseline
-start.only.mod = lmer(end.nspp~start.nspp + (1|transition), data = mod.dats, REML = FALSE, na.action = "na.fail")
-AICc(final.climVar.mod,start.only.mod)
-
+best.ExplClimVar.mod.str
 ```
 
 
-```{r}
-sjPlot::plot_model(final.climVar.mod,type = "pred")
+4. With the best climate variables, revisit random effect structure
+```{r explClimVars.REs}
+
+# Swap the random effects in the best explicit-climate model
+mod1 <- lmer(sub("(1 | transition)", "(1|PSaspect)", best.ExplClimVar.mod.str, fixed = TRUE),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+mod2 <- lmer(best.ExplClimVar.mod.str,
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+mod3 <- lmer(sub("(1 | transition)", "(1|PSaspect) + (1|transition)", best.ExplClimVar.mod.str, fixed = TRUE),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+AICc(mod1)
+AICc(mod2)
+AICc(mod3)
+
+# Save best explicit-climate model (mod2, REML fit) and the full climate-variable AICc table
+saveRDS(object = list(bestMod = mod2, clim.mod.AICs = clim.mod.AICs),
+        file = paste0("Results/climVar_models_richness_",run.date,".rds"))
+write_csv(clim.mod.AICs,paste0("Results/climVar_richness_AICc_results_",run.date,".csv"))
+```
+
+
+```{r plots}
+# Best explicit-climate model
+richMod <- readRDS("Results/climVar_models_richness_2026-10-20.rds")[[1]]
+summary(richMod)
+sjPlot::plot_model(richMod)
+sjPlot::plot_model(richMod,type="pred")
+sjPlot::plot_model(richMod,type="int")
+
+# Predicted change (predicted end - start) at the actual data points, each with its own climate and start richness
+richMod.us = lmer(formula(richMod), data = mod.dats, REML = TRUE)   # refit on unscaled data
+
+rich_pred_df = mod.dats %>%
+  mutate(pred.endnspp = predict(richMod.us, newdata = ., re.form = NA),
+         pred.changenspp = pred.endnspp - start.nspp,
+         park2 = case_when(park=="GNP"~"GLAC",
+                           park=="YNP"~"YELL",
+                           park=="RMN"~"ROMO",
+                           park=="GSD"~"GRSD",
+                           park=="PEC"~"PECO"),
+         park2 = factor(park2,levels=rev(c("GLAC","YELL","ROMO","GRSD","PECO"))))
+
+park.pal = c(GLAC='#B07AA1',YELL='#1170AA',ROMO='#59A14F',GRSD='#E6AB02',PECO='#C85200')
+
+ggplot(rich_pred_df, aes(x = start.nspp, y = pred.changenspp, color = park2)) +
+  geom_hline(yintercept = 0) +
+  geom_point(size = 2.5, alpha = 0.8) +
+  geom_smooth(method="lm")+
+  scale_color_manual(values = park.pal) +
+  theme_bw(base_size = 16) +
+  labs(x = "Start richness", y = "Predicted change in richness", color = "Park")
+```
+
+
+## SCRATCH
+### Ordination of community composition (for learning, not for the manuscript)
+Each point is one summit-aspect survey; arrows connect consecutive surveys (one arrow = one transition). Arrow length = how much composition changed (same idea as bc.dissim)
+```{r scratch_nmds}
+library(vegan)
+
+# Mean cover of each species in each summit-aspect survey (averaged across quadrats)
+comm.wide = veg %>%
+  group_by(park,summit,aspect,year,sciname) %>%
+  summarise(cover = mean(cover), .groups = "drop") %>%
+  pivot_wider(names_from = sciname, values_from = cover, values_fill = 0)
+
+comm.mat = comm.wide %>% select(-c(park,summit,aspect,year)) # species x survey matrix
+
+set.seed(1)
+comm.nmds = metaMDS(comm.mat, distance = "bray", k = 2, trymax = 50)
+comm.nmds$stress # < 0.2 is generally considered acceptable
+
+nmds.df = comm.wide %>%
+  select(park,summit,aspect,year) %>%
+  mutate(NMDS1 = comm.nmds$points[,1],
+         NMDS2 = comm.nmds$points[,2],
+         park2 = case_when(park=="GNP"~"GLAC",
+                           park=="YNP"~"YELL",
+                           park=="RMN"~"ROMO",
+                           park=="GSD"~"GRSD",
+                           park=="PEC"~"PECO"),
+         park2 = factor(park2,levels=rev(c("GLAC","YELL","ROMO","GRSD","PECO")))) %>%
+  arrange(park,summit,aspect,year) %>%
+  group_by(park,summit,aspect) %>%
+  mutate(NMDS1.next = lead(NMDS1), NMDS2.next = lead(NMDS2)) %>% # position at next survey
+  ungroup()
+
+park.pal = c(GLAC='#B07AA1',YELL='#1170AA',ROMO='#59A14F',GRSD='#E6AB02',PECO='#C85200')
+
+ggplot(nmds.df, aes(x = NMDS1, y = NMDS2, color = park2)) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  geom_segment(aes(xend = NMDS1.next, yend = NMDS2.next), arrow = arrow(length = unit(0.15,"cm")), na.rm = TRUE) +
+  scale_color_manual(values = park.pal) +
+  theme_bw(base_size = 14) +
+  labs(color = "Park")
 ```

@@ -16,24 +16,26 @@ library(rje)
 library(performance)
 library(sjPlot)
 library(corrplot)
+library(parallel)
+library(doParallel)
+library(foreach)
+library(data.table)
+
+run.date <- Sys.Date()
 
 ### Read in and clean data
-
+# Cover is summed species cover of vascular plants (can exceed 100% where plants overlap)
+# Built by Scripts/1_DataPrep/VegetationData/surfaceCoverfromSpecCover_final.R -> Scripts/1_DataPrep/AnalysisData/PlantCover_AnalysisDataPrep.Rmd
 dats.orig=read_csv('Data/AnalysisData/vascplantcover_final.csv') %>% 
   filter(!is.na(start.plantCover)) %>% 
   mutate(PSaspect=paste(park,summit,aspect,sep=".")) %>% 
   relocate(c(change.cover),.after = end.plantCover) %>% 
     arrange(-change.cover) %>% 
-  mutate(park = factor(park,levels=c("GNP","YNP","RMN","GSD","PEC")),
+  mutate(park = factor(park,levels=rev(c("GNP","YNP","RMN","GSD","PEC"))),
          tr.num = str_sub(transition,4,4))
 
 dats = dats.orig %>% 
-  select(-contains(c("rock","scree"))) %>% 
   na.omit()
-
-ggplot(dats,aes(x=change.cover))+
-  geom_histogram()+
-  facet_wrap(~park,ncol=1)
 
 ### Create another dataframe where numeric predictor variables are scaled ###
 dats.scaled = dats # Get names columns to standardize
@@ -43,64 +45,92 @@ dats.scaled[scale_cols]=lapply(dats.scaled[scale_cols], function(x) scale(x))
 rm(scale_cols)
 ```
 
-Vascular plant cover models have very few predictor variables, so model selection is much simpler
-- Fixed effects are start cover, climate variables, site latitude, and park -- here
-- Random effect options are PSaspect and transition
+## Did total vascular plant cover change overall and by park?
+```{r direction_test_totalcover}
+# Reviewer 2 (general comment: overall community dynamics to set the scene for abundance changes)
+# Intercept = mean change in % cover per summit-aspect; CI excluding 0 = systematic change
+cover.mod = lmer(change.cover ~ 1 + (1|transition), data = dats, REML = TRUE)
+# confint(cover.mod, parm = "beta_", method = "Wald")
+summary(cover.mod)
+
+# By park
+cover.park.mod = lmer(change.cover ~ 0 + park + (1|transition), data = dats, REML = TRUE)
+confint(cover.park.mod, parm = "beta_", method = "Wald")
+summary(cover.park.mod)
+```
+
+## Are forb and graminoid cover increasing or decreasing?
+```{r direction_test}
+# Editor & Reviewer 1 (line 27): community-level check on species-level result that graminoids increased in cover more than forbs
+# Intercept = mean change in % cover per summit-aspect; CI excluding 0 = systematic change
+forb.mod = lmer(change.forbCover ~ 1 + (1|transition), data = dats, REML = TRUE)
+gram.mod = lmer(change.gramCover ~ 1 + (1|transition), data = dats, REML = TRUE)
+confint(forb.mod, parm = "beta_", method = "Wald")
+confint(gram.mod, parm = "beta_", method = "Wald")
+
+# By park
+forb.park.mod = lmer(change.forbCover ~ 0 + park + (1|transition), data = dats, REML = TRUE)
+gram.park.mod = lmer(change.gramCover ~ 0 + park + (1|transition), data = dats, REML = TRUE)
+
+summary(forb.park.mod)
+
+confint(forb.park.mod, parm = "beta_", method = "Wald")
+confint(gram.park.mod, parm = "beta_", method = "Wald")
+```
+
+## Model selection for change in total vascular plant cover (steps 1-4)
+Reviewer 2 (general comment): the "simple models" of change in total vascular plant cover, built with the same model selection procedure as the species-level models
+
+1. Find random effect structure
 ```{r REstructure}
 
-### Compare RE options with a fully saturated FE structure
+###### Full fixed effects model before any winnowing of FE variables #######
 
-# PS aspect random slope
-mod1 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|PSaspect),
-                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
+mod1 <- lmer(end.plantCover ~ start.plantCover*(climPC1+climPC2+sitelat) + (1|PSaspect),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
 
-# transition as random slope
-mod2 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|transition),
-                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
+mod2 <- lmer(end.plantCover ~ start.plantCover*(climPC1+climPC2+sitelat) + (1|transition),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
 
-# both as random slopes
-mod3 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|PSaspect) + (1|transition),
-                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
+mod3 <- lmer(end.plantCover ~ start.plantCover*(climPC1+climPC2+sitelat) + (1|PSaspect) + (1|transition),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
 
-## Same as above but without park ##
-mod4 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + (1|PSaspect),
-                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
-
-# transition as random slope
-mod5 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + (1|transition),
-                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
-
-# both as random slopes
-mod6 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + (1|PSaspect) + (1|transition),
-                  na.action = "na.fail",data = dats.scaled,REML = TRUE)
-
-# Compare AICc values
-mod.compare = AICc(mod1,mod2,mod3,mod4,mod5,mod6) %>% mutate(delta = AICc-min(AICc)) %>% arrange(delta)
-
-##### Mod 2 -- transition as a random slope -- is best. Now refit with ML and dredge
-mod2.ML = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|transition),
-                  na.action = "na.fail",data = dats.scaled,REML = F)
-
-## Dredge the model that was refit with maximum likelihood
-mod2.dredge = dredge(mod2.ML,beta = c("none"),fixed = c('start.plantCover'),trace=2)
-#####
-
-### The best model here does not include and climPC variables. Do we want to just fix them? The second best model does include clim PC2
-
-##### Pull best model from dredge #####
-best.PC.mod = get.models(mod2.dredge,subset = 1)[[1]]
-best.PC.mod@call
-
-# end.plantCover ~ start.plantCover + climPC1 + climPC1:start.plantCover + park + (1 | transition) 
-# rm(as.vector(rownames(mod.compare)[2:7]))
-rm(mod1,mod2,mod3,mod4,mod5,mod6,mod.compare,mod2.dredge,mod2.ML)
+AICc(mod1)
+AICc(mod2)
+AICc(mod3)
 ```
 
 
-Sub in climate vars for climPC1
+2. Find fixed structure with climate PCs 1 & 2 #####
+Refit best RE model using ML + dredge to find the most important fixed effects
+```{r FEstructure_refitwithML_thenDredge}
 
-3. Take that model with the optimal FE and RE structure, remove random slopes and find best explicit climate variables in nested loops
-```{r best.clim.vars, warning=FALSE}
+# Refit using ML rather than REML
+climPC.RE.mod.MLfit = lmer(end.plantCover ~ start.plantCover*(climPC1+climPC2+sitelat) + (1|transition),
+             na.action = "na.fail",data = dats.scaled,REML = FALSE)
+climPC.RE.mod.MLfit %>% summary()
+
+climPC.RE.mod.dredge = dredge(climPC.RE.mod.MLfit, beta = c("none"), fixed = c('start.plantCover'),trace=2)
+
+best.climPC.fe.mod = get.models(climPC.RE.mod.dredge,subset = 1)[[1]]
+top10.climPC.fe.mods = get.models(climPC.RE.mod.dredge,subset = 1:10)
+
+saveRDS(object = list(bestMod = best.climPC.fe.mod,top10.climPC.fe.mods = top10.climPC.fe.mods),
+        file = paste0("Results/climPC_models_plantCover_",run.date,".rds"))
+
+climPC.RE.mod.dredge.fltr = as.data.frame(climPC.RE.mod.dredge) %>% slice_head(n = 10)
+write_csv(climPC.RE.mod.dredge.fltr,paste0("Results/climPC_plantCover_dredge_results_",run.date,".csv"))
+```
+
+3. Take that model with the optimal FE and RE structure find best explicit climate variables in nested loops
+```{r best.clim.vars}
+
+best.climPC.mods <- readRDS(paste0("Results/climPC_models_plantCover_",run.date,".rds"))
+best.climPC.mod = best.climPC.mods$bestMod
+summary(best.climPC.mod)
+
+# Replace climPC1/2 with generic clim var names
+climVar.generic.mod = c("end.plantCover ~ start.plantCover*(sitelat + tmean.var + cwd.var + ppt.var + snow.gdd.var) + (1 | transition)")
 
 # Create climate variable variable groups
 val = c("min","max","mean")
@@ -110,31 +140,28 @@ ppt.grp = append(paste0(val,".gs.ppt"),NA)
 cwd.grp =  append(c(paste0(val,".aet"),paste0(val,".pet"),paste0(val,".wy.ppt")),NA)
 rm(val)
 
-# to see number of combinations
-clim.combos.df = expand_grid(tmean.grp,snow.gdd.grp,ppt.grp,cwd.grp) %>% filter(rowSums(is.na(.))!=ncol(.))
-
-# Use the best global model from above to sub in explicit climate variables
-# mod2 = lmer(end.plantCover~start.plantCover*(climPC1+climPC2+sitelat) + park + (1|transition),
-#                   na.action = "na.fail",data = dats.scaled,REML = TRUE)
-
-climVar.generic.mod = "end.plantCover~start.plantCover*(tmean.var + cwd.var + ppt.var + snow.gdd.var + sitelat) + park + (1|transition)"
+climVar_param_grid <- expand_grid(tmean.grp,snow.gdd.grp,ppt.grp,cwd.grp) %>%
+  filter(!if_all(everything(), is.na))
 
 # In each iteration, a single climate variable from each group is subbed in for the generic climate variables above (i.e., tmean.var is swapped out for mean.tmean). That model is then fit with ML (not REML) and the AIC value is stored in the output table for comparison once the loops are finished running
 
-# Store results
-clim.mod.AICs = NULL
+#### Initiate cluster #####
+clust = makeCluster(spec = 2)
+registerDoParallel(cl = clust)
 
-for(i in 1:nrow(clim.combos.df)){
+results_list <- foreach::foreach(i = 1:nrow(climVar_param_grid), .packages = c("tidyverse","data.table","lme4","performance","MuMIn") )%dopar%{
   
-  tmean.i = clim.combos.df$tmean.grp[i]
-  cwd.i = clim.combos.df$cwd.grp[i]
-  ppt.i = clim.combos.df$ppt.grp[i]
-  snow.gdd.i = clim.combos.df$snow.gdd.grp[i]
-
+  row.i <- climVar_param_grid[i,]
+  
+  tmean.i <- row.i$tmean.grp
+  cwd.i <- row.i$cwd.grp
+  ppt.i <- row.i$ppt.grp
+  snow.gdd.i <- row.i$snow.gdd.grp
+  
+  clim.mod.i = climVar.generic.mod 
+  
   # If all clim vals are NA skip to next loop
-  if(is.na(tmean.i)&is.na(cwd.i)&is.na(ppt.i)&is.na(snow.gdd.i)) next
-  
-  clim.mod.i = climVar.generic.mod
+  # if(is.na(tmean.i)&is.na(cwd.i)&is.na(ppt.i)&is.na(snow.gdd.i)) next
   
   # either remove tmean.var or replace with specific tmean variable name. Repeat the same process for all other clim variable groups
   if(is.na(tmean.i)) {clim.mod.i = gsub(pattern = "tmean.var + ",replacement = "", x = clim.mod.i, fixed = T)
@@ -149,45 +176,107 @@ for(i in 1:nrow(clim.combos.df)){
   if(is.na(snow.gdd.i)) {clim.mod.i = gsub(pattern = " + snow.gdd.var",replacement = "", x = clim.mod.i, fixed = T)
   }else{clim.mod.i = gsub(pattern = "snow.gdd.var",replacement = snow.gdd.i,x = clim.mod.i)}
   
-  out_df = data.frame(tmean.var = tmean.i,
-              snow.gdd.var = snow.gdd.i,
-              ppt.var = ppt.i,
-              cwd.var = cwd.i,
-              mod.str = clim.mod.i)
+  out_df = data.table(tmean.var = tmean.i,
+            snow.gdd.var = snow.gdd.i,
+            ppt.var = ppt.i,
+            cwd.var = cwd.i,
+            mod.str = clim.mod.i)
   
-  # Fit in LMER
-  mod.fit.i = lmer(formula = clim.mod.i, data = dats.scaled, REML = FALSE, na.action = "na.fail")
+   # Fit in LMER
+    mod.fit.i = lmer(formula = clim.mod.i, data = dats.scaled, REML = FALSE, na.action = "na.fail")
 
-  out_df$AICc=AICc(mod.fit.i)
-  out_df$condR2 = r2(mod.fit.i)[[1]]
-  out_df$margR2 = r.squaredGLMM(mod.fit.i)[[2]]
-
-  clim.mod.AICs = rbind(clim.mod.AICs,out_df)
-  rm(out_df,clim.mod.i)
+    out_df$AICc=AICc(mod.fit.i)
+    out_df$condR2 = r2(mod.fit.i)[[1]]
+    out_df$margR2 = r.squaredGLMM(mod.fit.i)[[1]]
+    return(out_df)
 
 }
+stopCluster(clust)
+clim.mod.AICs <- rbindlist(results_list)
 
-## add a delta AIC column
-clim.mod.AICs$delta = clim.mod.AICs$AICc-min(clim.mod.AICs$AICc)
+clim.mod.AICs$delta = clim.mod.AICs$AICc - min(clim.mod.AICs$AICc)
+clim.mod.AICs <- clim.mod.AICs %>% arrange(delta)
 
-## Pull out model string for model with lowest AIC
 best.ExplClimVar.mod.str <- clim.mod.AICs$mod.str[clim.mod.AICs$delta==0]
-
-## Fit that model again and put in global env
-best.ExplClimVar.mod = lmer(best.ExplClimVar.mod.str, data = dats.scaled, REML = FALSE, na.action = "na.fail")
-
-## Dredge that model
-dredge.climVar.mod = dredge(best.ExplClimVar.mod,beta = c("none"),fixed = c('start.plantCover'),trace=2)
-
-## Pull out best model from dredge and refit with REML for parameter estimates
-best.climVar.mod = get.models(dredge.climVar.mod,subset=1)[[1]]
-best.climVar.mod@call
-
-# best.climVar.mod above is already the refit dredge winner (same data, same
-# REML setting) -- no need to hand-retype its formula into a second model.
-final.climVar.mod = best.climVar.mod
-summary(final.climVar.mod)
-
+best.ExplClimVar.mod.str
 ```
 
+
+4. With the best climate variables, revisit random slopes letting all combos of best clim variables be random slopes
+```{r explClimVars.REs}
+
+###### Full fixed effects model before any winnowing of FE variables #######
+mod1 <- lmer(end.plantCover ~ start.plantCover*(sitelat + mean.wy.ppt + mean.gs.ppt + max.snowdays) + sitelat*aspect + (1|PSaspect),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+mod2 <- lmer(end.plantCover ~ start.plantCover*(sitelat + mean.wy.ppt + mean.gs.ppt + max.snowdays) + (1|transition),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+mod3 <- lmer(end.plantCover ~ start.plantCover*(sitelat + mean.wy.ppt + mean.gs.ppt + max.snowdays) + (1|PSaspect) + (1|transition),
+             na.action = "na.fail",data = dats.scaled,REML = TRUE)
+
+AICc(mod1)
+AICc(mod2)
+AICc(mod3)
+
+## Mod 2 is the best model here
+# > AICc(mod1)
+# [1] 923.4103
+# > AICc(mod2)
+# [1] 916.8994
+# > AICc(mod3)
+# [1] 919.3503
+
+# Save best explicit-climate model (mod2, REML fit) and the full climate-variable AICc table
+saveRDS(object = list(bestMod = mod2, clim.mod.AICs = clim.mod.AICs),
+        file = paste0("Results/climVar_models_plantCover_",run.date,".rds"))
+write_csv(clim.mod.AICs,paste0("Results/climVar_plantCover_AICc_results_",run.date,".csv"))
+```
+
+```{r}
+coverMod <- readRDS("Results/climVar_models_plantCover_2026-10-20.rds")[[1]]
+summary(coverMod)
+sjPlot::plot_model(coverMod)
+
+sjPlot::plot_model(coverMod,type="pred")
+sjPlot::plot_model(coverMod,type="int")
+
+# Predicted change (predicted end - start) at the actual data points, each with its own climate and start cover
+coverMod.us = lmer(formula(coverMod), data = dats, REML = TRUE)   # refit on unscaled data
+
+cover_pred_df = dats %>%
+  mutate(pred.endcover = predict(coverMod.us, newdata = ., re.form = NA),
+         pred.changecover = pred.endcover - start.plantCover,
+         park2 = case_when(park=="GNP"~"GLAC",
+                           park=="YNP"~"YELL",
+                           park=="RMN"~"ROMO",
+                           park=="GSD"~"GRSD",
+                           park=="PEC"~"PECO"),
+         park2 = factor(park2,levels=rev(c("GLAC","YELL","ROMO","GRSD","PECO"))))
+
+park.pal = c(GLAC='#B07AA1',YELL='#1170AA',ROMO='#59A14F',GRSD='#E6AB02',PECO='#C85200')
+
+ggplot(cover_pred_df, aes(x = start.plantCover, y = pred.changecover, color = park2)) +
+  geom_hline(yintercept = 0) +
+  geom_point(size = 2.5, alpha = 0.8) +
+  geom_smooth(method="lm",se=F)+
+  scale_color_manual(values = park.pal) +
+  theme_bw(base_size = 16) +
+  labs(x = "Start cover", y = "Predicted change in cover", color = "Park")
+
+# Forest plot of fixed effects (as in Manu figures Figs 18-19), from the scaled model so effects are comparable
+coverMod.coefs = broom.mixed::tidy(coverMod, effects = "fixed") %>%
+  filter(term != "(Intercept)") %>%
+  mutate(term = factor(term, levels = rev(term)))
+
+ggplot(coverMod.coefs, aes(x = estimate, y = term, color = estimate > 0)) +
+  geom_vline(xintercept = 0, color = "grey70", linetype = "dashed") +
+  geom_point(size = 2) +
+  geom_errorbar(aes(xmin = estimate - std.error*1.96, xmax = estimate + std.error*1.96), width = 0.25) +
+  geom_text(aes(label = round(estimate, 2)), vjust = -1, fontface = "bold") +
+  theme_bw(base_size = 14) +
+  labs(x = "Estimate (per 1 SD)", y = "") +
+  theme(legend.position = "none") +
+  scale_color_manual(values = c("red3", "dodgerblue3"))
+```
 
