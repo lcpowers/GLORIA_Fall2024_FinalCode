@@ -46,7 +46,8 @@ dats=dats.orig %>%
   filter(startcover+endcover!=0) %>%  # remove cases where a species did not have start or end cover
   mutate(parksummit = paste(park,summit,sep="."),
          PSaspect = paste(park,summit,aspect,sep="."),
-         startcovcats = cut(startcover,breaks=c(-0.1,seq(0.1,40,5)))) %>% filter(habit!="tree" & perenneating != "annual")
+         startcovcats = cut(startcover,breaks=c(-0.1,seq(0.1,40,5)))) %>% 
+  filter(habit!="tree" & perenneating != "annual")
 
 # Create another dataframe where numeric predictor variables are scaled
 dats.scaled = dats# Get names columns to standardize
@@ -54,7 +55,6 @@ scale_cols = dats %>% select(startcover,climPC1,climPC2,sitelat,contains(c("1090
 dats.scaled[scale_cols]=lapply(dats.scaled[scale_cols], function(x) scale(x))
 # not_all_na <- function(x) any(!is.na(x))
 rm(scale_cols)
-
 ```
 
 
@@ -139,16 +139,16 @@ write_csv(REcombos,paste0("Results/RandomEffects/RE_SelectionTable_",run.date,".
 ```
 
 ```{r}
-best.corrRE.mod <- lmer(REcombos$mod_string[1],na.action =  "na.fail",data = dats.scaled,REML = FALSE)
-best.uncorrRE.mod <- lmer(REcombos$mod_string[13],na.action =  "na.fail",data = dats.scaled,REML = FALSE)
-
-summary(best.corrRE.mod)
-VarCorr(best.corrRE.mod)
-summary(best.uncorrRE.mod)
-
-row3.mod <- lmer(REcombos$mod_string[3],na.action =  "na.fail",data = dats.scaled,REML = FALSE)
-  VarCorr(row3.mod)
-  rePCA(row3.mod)
+# best.corrRE.mod <- lmer(REcombos$mod_string[1],na.action =  "na.fail",data = dats.scaled,REML = FALSE)
+# best.uncorrRE.mod <- lmer(REcombos$mod_string[13],na.action =  "na.fail",data = dats.scaled,REML = FALSE)
+# 
+# summary(best.corrRE.mod)
+# VarCorr(best.corrRE.mod)
+# summary(best.uncorrRE.mod)
+# 
+# row3.mod <- lmer(REcombos$mod_string[3],na.action =  "na.fail",data = dats.scaled,REML = FALSE)
+#   VarCorr(row3.mod)
+#   rePCA(row3.mod)
 ```
 
 2. Find fixed structure with climate PCs 1 & 2 #####
@@ -163,9 +163,9 @@ climPC.RE.mod
 climPC.RE.mod.MLfit = lmer(formula = climPC.RE.mod,na.action =  "na.fail",data = dats.scaled,REML = FALSE)
 climPC.RE.mod.MLfit %>% summary()
 
-terms = MuMIn::getAllTerms(climPC.RE.mod.MLfit)
-terms
-length(terms)
+# terms = MuMIn::getAllTerms(climPC.RE.mod.MLfit)
+# terms
+# length(terms)
 
 # Dredge this model
 clusterType <- if(length(find.package("snow", quiet = TRUE))) "SOCK" else "PSOCK"
@@ -175,7 +175,7 @@ clusterExport(clust,"dats.scaled")
 
 climPC.RE.mod.dredge =  dredge(climPC.RE.mod.MLfit,
                         beta = c("none"),
-                        fixed = c('startcover',"climPC1"), # Fixing clim PC1 because it is a random slope term
+                        fixed = c('startcover',"climPC1","climPC2"), # Fixing clim PC1 because it is a random slope term
                         trace=2,
                         subset = dc(latmean1090,I(latmean1090^2)),
                         cluster = clust)
@@ -204,7 +204,7 @@ best.climPC.mod = best.climPC.mods$bestMod
 summary(best.climPC.mod)
 
 # Replace climPC1/2 with generic clim var names
-climVar.generic.mod = c("endcover ~ startcover*(tmean.var + cwd.var + ppt.var + snow.gdd.var + latmean1090 + I(latmean1090^2) + sitelat) + perenneating*(tmean.var + cwd.var + ppt.var + snow.gdd.var) + habit*(tmean.var + cwd.var + ppt.var + snow.gdd.var) + habit*sitelat + (1 | transition)")
+climVar.generic.mod = c("endcover ~ startcover*(tmean.var + cwd.var + ppt.var + snow.gdd.var + latmean1090 + I(latmean1090^2) + sitelat)  + habit*(tmean.var + cwd.var + ppt.var + snow.gdd.var) + habit*sitelat + (1 | transition)")
 
 # Create climate variable variable groups
 val = c("min","max","mean")
@@ -305,7 +305,7 @@ best.ExplClimVar.mod.str
 # just without its (1|transition) term, since the loop below builds its own RE terms.
 # Kept as its own variable rather than also overwriting best.ExplClimVar.mod.str,
 # which should keep meaning "stage 3's winning formula" for the rest of the script.
-basemod = "endcover ~ startcover*(mean.tmean + mean.wy.ppt + mean.gs.ppt + mean.snowdays + latmean1090 + I(latmean1090^2) + sitelat) + (mean.tmean + mean.wy.ppt + mean.gs.ppt + mean.snowdays)*perenneating + habit*sitelat + (mean.tmean + mean.wy.ppt + mean.gs.ppt + mean.snowdays)*habit"
+basemod = "endcover ~ startcover*(mean.tmean + mean.wy.ppt + mean.gs.ppt + mean.snowdays + latmean1090 + I(latmean1090^2) + sitelat)  + habit*(mean.tmean + mean.wy.ppt + mean.gs.ppt + mean.snowdays) + habit*sitelat"
 
 # List to store model objects in
 for(i in 1:nrow(REcombos)){
@@ -325,7 +325,7 @@ for(i in 1:nrow(REcombos)){
     # mod_i = paste(basemod,int_terms,slope_terms,sep = "+")
 
     int_terms = paste0("(1|",ints_i,")",collapse = "+")
-    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," || sciname)",sep = "")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
     mod_i = paste(basemod,int_terms,slope_terms,sep = " + ")
     rm(int_terms,slope_terms)
 
@@ -350,7 +350,7 @@ for(i in 1:nrow(REcombos)){
     # slope_terms = paste0("(",slopes_i," || sciname)",collapse="+")
     # mod_i = paste(basemod,slope_terms,sep = "+")
     
-    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," || sciname)",sep = "")
+    slope_terms = paste0(c(slopes_i),collapse="+") %>% paste("(",.," | sciname)",sep = "")
     mod_i = paste(basemod,slope_terms,sep = "+")
     rm(slope_terms)
 
